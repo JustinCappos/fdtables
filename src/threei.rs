@@ -173,5 +173,6 @@ reversible_enum! {
         EKEYREJECTED = 129,	// Key was rejected by service  for robust mutexes
         EOWNERDEAD = 130,	// Owner died
         ENOTRECOVERABLE = 131, // State not recoverable
+        ELIND = 224, // Lind specific error
     }
 }

@@ -23,29 +23,37 @@ use std::collections::HashMap;
 // To make this work, this library provides the following funtionality:
 //
 //      translate_virtual_fd(cageid, virtualfd) -> Result<realfd,EBADFD>
+//
 //      get_unused_virtual_fd(cageid,realfd,is_cloexec,optionalinfo) -> Result<virtualfd, EMFILE>
+//
 //      set_cloexec(cageid,virtualfd,is_cloexec) -> Result<(), EBADFD>
 //
-//
-// There are other helper functions:
-//
-//      get_optionalinfo(cageid,virtualfd) -> Result<optionalinfo, EBADFD>
-//      set_optionalinfo(cageid,virtualfd,optionalinfo) -> Result<(), EBADFD>
-//          The above two are useful if you want to track other things like
-//          an id for other in-memory data structures
+//      get_specific_virtual_fd(cageid,virtualfd,realfd,is_cloexec,optionalinfo) -> Result<(), (ELIND|EBADF)>
+//          This is mostly used for dup2/3.  I'm assuming the caller got the
+//          entry already and wants to put it in a location.  Returns ELIND
+//          if the entry is occupied and EBADF if out of range...
 //
 //      copy_fdtable_for_cage(srccageid, newcageid) -> Result<(), ENFILE>
-//          This is mostly used in handling fork, etc.
+//          This is effectively just making a copy of a specific cage's
+//          fdtable, for use in fork()
 //
 //      remove_cage_from_fdtable(cageid)
 //          This is mostly used in handling exit, etc.
 //
-//      close_all_for_exec(cageid)
+//      empty_fds_for_exec(cageid)
 //          This handles exec by removing all of the realfds from the cage.
 //
 //      get_exec_iter(cageid) -> iter()
 //          This handles exec by returning an iterator over the realfds,
 //          removing each entry after the next iterator element is returned.
+//
+// There are other helper functions meant to be used when this is imported
+// as a grate library::
+//
+//      get_optionalinfo(cageid,virtualfd) -> Result<optionalinfo, EBADFD>
+//      set_optionalinfo(cageid,virtualfd,optionalinfo) -> Result<(), EBADFD>
+//          The above two are useful if you want to track other things like
+//          an id for other in-memory data structures
 //
 // In situations where this will be used by a grate, a few other calls are
 // particularly useful:
@@ -81,7 +89,7 @@ const FD_PER_PROCESS_MAX: u64 = 1024;
 
 // BUG / TODO: Use this in some sane way...
 #[allow(dead_code)]
-const TOTAL_FD_MAX: u64 = 1024;
+const TOTAL_FD_MAX: u64 = 4096;
 
 // It's fairly easy to check the fd count on a per-process basis (I just check
 // when I would
@@ -195,6 +203,55 @@ pub fn get_unused_virtual_fd(
     Err(threei::Errno::EMFILE as u64)
 }
 
+// This is used for things like dup2, which need a specific fd...
+// NOTE: I will assume that the requested_virtualfd isn't used.  If it is, I
+// will return ELIND
+// virtual and realfds are different
+pub fn get_specific_virtual_fd(
+    cageid: u64,
+    requested_virtualfd: u64,
+    realfd: u64,
+    should_cloexec: bool,
+    optionalinfo: u64,
+) -> Result<(), threei::RetVal> {
+    let mut fdtable = GLOBALFDTABLE.lock().unwrap();
+
+    if !fdtable.contains_key(&cageid) {
+        panic!("Unknown cageid in fdtable access");
+    }
+
+    // If you ask for a FD number that is too large, I'm going to reject it.
+    // Note that, I need to use the FD_PER_PROCESS_MAX setting because this
+    // is also how I'm tracking how many values you have open.  If this
+    // changed, then these constants could be decoupled...
+    if requested_virtualfd > FD_PER_PROCESS_MAX {
+        return Err(threei::Errno::EBADF as u64);
+    }
+
+    // Set up the entry so it has the right info...
+    // Note, a HashMap stores its data on the heap!  No need to box it...
+    // https://doc.rust-lang.org/book/ch08-03-hash-maps.html#creating-a-new-hash-map
+    let myentry = FDTableEntry {
+        realfd,
+        should_cloexec,
+        optionalinfo,
+    };
+
+    if fdtable
+        .get(&cageid)
+        .unwrap()
+        .contains_key(&requested_virtualfd)
+    {
+        Err(threei::Errno::ELIND as u64)
+    } else {
+        fdtable
+            .get_mut(&cageid)
+            .unwrap()
+            .insert(requested_virtualfd, myentry);
+        Ok(())
+    }
+}
+
 // We're just setting a flag here, so this should be pretty straightforward.
 pub fn set_cloexec(cageid: u64, virtualfd: u64, is_cloexec: bool) -> Result<(), threei::RetVal> {
     let mut fdtable = GLOBALFDTABLE.lock().unwrap();
@@ -248,8 +305,19 @@ pub fn set_optionalinfo(
     };
 }
 
-//          The above two are useful if you want to track other things like
-//          an id for other in-memory data structures
+// To add:
+//      copy_fdtable_and_iter(srccageid, newcageid) -> iter()
+//          This is mostly used in handling fork, etc.
+//
+//      remove_cage_from_fdtable(cageid)
+//          This is mostly used in handling exit, etc.
+//
+//      empty_fds_for_exec(cageid)
+//          This handles exec by removing all of the realfds from the cage.
+//
+//      get_exec_iter(cageid) -> iter()
+//          This handles exec by returning an iterator over the realfds,
+//          removing each entry after the next iterator element is returned.
 //
 
 /***************************** TESTS FOLLOW ******************************/
@@ -339,6 +407,44 @@ mod tests {
             250,
             get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd2).unwrap()
         );
+    }
+
+    #[test]
+    // Let's test to see our functions error gracefully with badfds...
+    fn get_specific_virtual_fd_tests() {
+        let mut _thelock = TESTMUTEX.lock().unwrap();
+        flush_fdtable();
+
+        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
+
+        // Choose an unused new_fd
+        let my_new_fd: u64;
+        if my_virt_fd == 0 {
+            my_new_fd = 100;
+        } else {
+            my_new_fd = 0;
+        }
+        get_specific_virtual_fd(threei::TESTING_CAGEID, my_new_fd, 1, true, 5).unwrap();
+        assert_eq!(
+            get_optionalinfo(threei::TESTING_CAGEID, my_new_fd).unwrap(),
+            5
+        );
+        assert_eq!(
+            translate_virtual_fd(threei::TESTING_CAGEID, my_new_fd).unwrap(),
+            1
+        );
+
+        // Check if I get an error using a used fd
+        assert!(get_specific_virtual_fd(threei::TESTING_CAGEID, my_new_fd, 1, true, 5).is_err());
+        // Check if I get an error going out of range...
+        assert!(get_specific_virtual_fd(
+            threei::TESTING_CAGEID,
+            FD_PER_PROCESS_MAX + 1,
+            1,
+            true,
+            5
+        )
+        .is_err());
     }
 
     #[test]
