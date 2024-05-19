@@ -13,7 +13,25 @@
 // normal use as cageids
 
 pub const INVALID_CAGEID: u64 = 0xfffffffffffffffe;
-pub const TESTING_CAGEID: u64 = 0xfffffffffffffffd;
+
+// Used for internal testing.  Not valid for a normal cageid...
+pub const TESTING_CAGEID: u64 = 0xffffffffffffffe0;
+pub const TESTING_CAGEID0: u64 = 0xffffffffffffffe0;
+pub const TESTING_CAGEID1: u64 = 0xffffffffffffffe1;
+pub const TESTING_CAGEID2: u64 = 0xffffffffffffffe2;
+pub const TESTING_CAGEID3: u64 = 0xffffffffffffffe3;
+pub const TESTING_CAGEID4: u64 = 0xffffffffffffffe4;
+pub const TESTING_CAGEID5: u64 = 0xffffffffffffffe5;
+pub const TESTING_CAGEID6: u64 = 0xffffffffffffffe6;
+pub const TESTING_CAGEID7: u64 = 0xffffffffffffffe7;
+pub const TESTING_CAGEID8: u64 = 0xffffffffffffffe8;
+pub const TESTING_CAGEID9: u64 = 0xffffffffffffffe9;
+pub const TESTING_CAGEID10: u64 = 0xffffffffffffffea;
+pub const TESTING_CAGEID11: u64 = 0xffffffffffffffeb;
+pub const TESTING_CAGEID12: u64 = 0xffffffffffffffec;
+pub const TESTING_CAGEID13: u64 = 0xffffffffffffffed;
+pub const TESTING_CAGEID14: u64 = 0xffffffffffffffee;
+pub const TESTING_CAGEID15: u64 = 0xffffffffffffffef;
 
 // Return value for system calls...
 pub type RetVal = u64;

@@ -37,15 +37,18 @@ use std::collections::HashMap;
 //          This is effectively just making a copy of a specific cage's
 //          fdtable, for use in fork()
 //
-//      remove_cage_from_fdtable(cageid)
-//          This is mostly used in handling exit, etc.
+//      remove_cage_from_fdtable(cageid) -> HashMap<virt_fd:u64,FDTableEntry>
+//          This is mostly used in handling exit, etc.  Returns the HashMap
+//          for the cage.
 //
-//      empty_fds_for_exec(cageid)
-//          This handles exec by removing all of the realfds from the cage.
+//      empty_fds_for_exec(cageid) -> HashMap<virt_fd:u64,FDTableEntry>
+//          This handles exec by removing all of FDTableEntries with cloexec
+//          set.  Those are returned in a HashMap
 //
-//      get_exec_iter(cageid) -> iter()
-//          This handles exec by returning an iterator over the realfds,
-//          removing each entry after the next iterator element is returned.
+//      iterate_over_fdtable(cageid) -> Values<'_, K, V>
+//          returns an iterator over the elements in the cage.
+//
+//
 //
 // There are other helper functions meant to be used when this is imported
 // as a grate library::
@@ -305,19 +308,38 @@ pub fn set_optionalinfo(
     };
 }
 
+// Helper function used for fork...  Copies an fdtable for another process
+pub fn copy_fdtable_for_cage(srccageid: u64, newcageid: u64) -> Result<(), threei::Errno> {
+    let mut fdtable = GLOBALFDTABLE.lock().unwrap();
+
+    if !fdtable.contains_key(&srccageid) {
+        panic!("Unknown srccageid in fdtable access");
+    }
+    if fdtable.contains_key(&newcageid) {
+        panic!("Known newcageid in fdtable access");
+    }
+
+    // Insert a copy and ensure it didn't exist...
+    let hmcopy = fdtable.get(&srccageid).unwrap().clone();
+    assert!(fdtable.insert(newcageid, hmcopy).is_none());
+    Ok(())
+    // I'm not going to bother to check the number of fds used overall yet...
+    //    Err(threei::Errno::EMFILE as u64),
+}
+
 // To add:
-//      copy_fdtable_and_iter(srccageid, newcageid) -> iter()
-//          This is mostly used in handling fork, etc.
 //
-//      remove_cage_from_fdtable(cageid)
-//          This is mostly used in handling exit, etc.
+//      remove_cage_from_fdtable(cageid) -> HashMap<virt_fd:u64,FDTableEntry>
+//          This is mostly used in handling exit, etc.  Returns the HashMap
+//          for the cage.
 //
-//      empty_fds_for_exec(cageid)
-//          This handles exec by removing all of the realfds from the cage.
+//      empty_fds_for_exec(cageid) -> HashMap<virt_fd:u64,FDTableEntry>
+//          This handles exec by removing all of FDTableEntries with cloexec
+//          set.  Those are returned in a HashMap
 //
-//      get_exec_iter(cageid) -> iter()
-//          This handles exec by returning an iterator over the realfds,
-//          removing each entry after the next iterator element is returned.
+//      iterate_over_fdtable(cageid) -> Values<'_, K, V>
+//          returns an iterator over the elements in the cage.
+//
 //
 
 /***************************** TESTS FOLLOW ******************************/
@@ -406,6 +428,48 @@ mod tests {
         assert_eq!(
             250,
             get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd2).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_copy_fdtable_for_cage() {
+        let mut _thelock = TESTMUTEX.lock().unwrap();
+        flush_fdtable();
+
+        // Acquire two virtual fds...
+        let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
+        let my_virt_fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 4, true, 250).unwrap();
+
+        assert_eq!(
+            150,
+            get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd1).unwrap()
+        );
+        assert_eq!(
+            250,
+            get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd2).unwrap()
+        );
+
+        // Copy the fdtable over to a new cage...
+        copy_fdtable_for_cage(threei::TESTING_CAGEID, threei::TESTING_CAGEID1).unwrap();
+
+        // Check the elements exist...
+        assert_eq!(
+            150,
+            get_optionalinfo(threei::TESTING_CAGEID1, my_virt_fd1).unwrap()
+        );
+        assert_eq!(
+            250,
+            get_optionalinfo(threei::TESTING_CAGEID1, my_virt_fd2).unwrap()
+        );
+        // ... and are independent...
+        set_optionalinfo(threei::TESTING_CAGEID, my_virt_fd1, 500).unwrap();
+        assert_eq!(
+            150,
+            get_optionalinfo(threei::TESTING_CAGEID1, my_virt_fd1).unwrap()
+        );
+        assert_eq!(
+            500,
+            get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd1).unwrap()
         );
     }
 
