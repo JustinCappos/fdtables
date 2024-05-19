@@ -1,13 +1,19 @@
 // Defining a few basic things about the 3i interface here...
-// This needs enough information that we can make calls effectively and 
+// This needs enough information that we can make calls effectively and
 // so needs errno, etc.
 
+// Let's not have clippy warn for EAGAIN, etc.
+#![allow(clippy::upper_case_acronyms)]
+// Let's not have clippy warn for EAGAIN, etc.
+#![allow(clippy::upper_case_acronyms)]
+// Don't warn if all listed things (like errnos) are not used in code...
+#![allow(dead_code)]
 
 // Define some cageid constants that may be useful.  These are not valid for
 // normal use as cageids
 
-pub const INVALID_CAGEID :u64 = 0xfffffffffffffffe;
-pub const TESTING_CAGEID :u64 = 0xfffffffffffffffd;
+pub const INVALID_CAGEID: u64 = 0xfffffffffffffffe;
+pub const TESTING_CAGEID: u64 = 0xfffffffffffffffd;
 
 // Return value for system calls...
 pub type RetVal = u64;
@@ -38,7 +44,7 @@ reversible_enum! {
     #[repr(u64)]
     pub enum Errno {
         EPERM = 1,	// Operation not permitted
-        ENOENT = 2, // No such file or directory
+        ENOENT = 2,     // No such file or directory
         ESRCH = 3,	// No such process
         EINTR = 4,	// Interrupted system call
         EIO = 5,	// I/O error
@@ -169,7 +175,3 @@ reversible_enum! {
         ENOTRECOVERABLE = 131, // State not recoverable
     }
 }
-
-
-
-
