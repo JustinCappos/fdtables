@@ -137,8 +137,8 @@ lazy_static! {
 }
 
 // These are the values we look up with at the end...
-#[derive(Clone, Copy)]
-struct FDTableEntry {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FDTableEntry {
     realfd: u64, // underlying fd (may be a virtual fd below us or
     // a kernel fd)
     should_cloexec: bool, // should I close this when exec is called?
@@ -327,11 +327,20 @@ pub fn copy_fdtable_for_cage(srccageid: u64, newcageid: u64) -> Result<(), three
     //    Err(threei::Errno::EMFILE as u64),
 }
 
+// This is mostly used in handling exit, etc.  Returns the HashMap
+// for the cage.
+pub fn remove_cage_from_fdtable(cageid: u64) -> HashMap<u64, FDTableEntry> {
+    let mut fdtable = GLOBALFDTABLE.lock().unwrap();
+
+    if !fdtable.contains_key(&cageid) {
+        panic!("Unknown cageid in fdtable access");
+    }
+
+    fdtable.remove(&cageid).unwrap()
+}
+
 // To add:
 //
-//      remove_cage_from_fdtable(cageid) -> HashMap<virt_fd:u64,FDTableEntry>
-//          This is mostly used in handling exit, etc.  Returns the HashMap
-//          for the cage.
 //
 //      empty_fds_for_exec(cageid) -> HashMap<virt_fd:u64,FDTableEntry>
 //          This handles exec by removing all of FDTableEntries with cloexec
@@ -428,6 +437,27 @@ mod tests {
         assert_eq!(
             250,
             get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd2).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_remove_cage_from_fdtable() {
+        let mut _thelock = TESTMUTEX.lock().unwrap();
+        flush_fdtable();
+
+        // Acquire two virtual fds...
+        let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
+
+        // let's drop this fdtable...
+        let mytable = remove_cage_from_fdtable(threei::TESTING_CAGEID);
+        // And check what we got back...
+        assert_eq!(
+            *(mytable.get(&my_virt_fd1).unwrap()),
+            FDTableEntry {
+                realfd: 10,
+                should_cloexec: false,
+                optionalinfo: 150
+            }
         );
     }
 
