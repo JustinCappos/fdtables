@@ -1,3 +1,5 @@
+#![feature(hash_extract_if)]
+
 mod threei;
 
 use lazy_static::lazy_static;
@@ -339,17 +341,37 @@ pub fn remove_cage_from_fdtable(cageid: u64) -> HashMap<u64, FDTableEntry> {
     fdtable.remove(&cageid).unwrap()
 }
 
-// To add:
-//
-//
-//      empty_fds_for_exec(cageid) -> HashMap<virt_fd:u64,FDTableEntry>
-//          This handles exec by removing all of FDTableEntries with cloexec
-//          set.  Those are returned in a HashMap
-//
-//      iterate_over_fdtable(cageid) -> Values<'_, K, V>
-//          returns an iterator over the elements in the cage.
-//
-//
+// This removes all fds with the should_cloexec flag set.  They are returned
+// in a new hashmap...
+pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
+    let mut fdtable = GLOBALFDTABLE.lock().unwrap();
+
+    if !fdtable.contains_key(&cageid) {
+        panic!("Unknown cageid in fdtable access");
+    }
+
+    // Create this hashmap through an lambda that checks should_cloexec...
+    // See: https://doc.rust-lang.org/std/collections/struct.HashMap.html#method.extract_if
+
+    fdtable
+        .get_mut(&cageid)
+        .unwrap()
+        .extract_if(|_k, v| v.should_cloexec)
+        .collect()
+}
+
+// returns a copy of the fdtable for a cage.  Useful helper function for a
+// caller that needs to examine the table.  Likely could be more efficient by
+// letting the caller borrow this...
+pub fn return_fdtable_copy(cageid: u64) -> HashMap<u64, FDTableEntry> {
+    let fdtable = GLOBALFDTABLE.lock().unwrap();
+
+    if !fdtable.contains_key(&cageid) {
+        panic!("Unknown cageid in fdtable access");
+    }
+
+    fdtable.get(&cageid).unwrap().clone()
+}
 
 /***************************** TESTS FOLLOW ******************************/
 
@@ -458,6 +480,90 @@ mod tests {
                 should_cloexec: false,
                 optionalinfo: 150
             }
+        );
+    }
+
+    #[test]
+    fn test_empty_fds_for_exec() {
+        let mut _thelock = TESTMUTEX.lock().unwrap();
+        flush_fdtable();
+
+        // Acquire two virtual fds...
+        let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
+        let my_virt_fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 4, true, 250).unwrap();
+
+        let myhm = empty_fds_for_exec(threei::TESTING_CAGEID);
+
+        assert_eq!(
+            150,
+            get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd1).unwrap()
+        );
+        // Should be missing...
+        assert!(get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd2).is_err());
+
+        // Should be missing...
+        assert!(myhm.get(&my_virt_fd1).is_none());
+        // Should be in this hash map now...
+        assert_eq!(myhm.get(&my_virt_fd2).unwrap().realfd, 4);
+    }
+
+    #[test]
+    fn return_fdtable_copy_test() {
+        let mut _thelock = TESTMUTEX.lock().unwrap();
+        flush_fdtable();
+        // Acquire two virtual fds...
+        let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
+        let my_virt_fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 4, true, 250).unwrap();
+
+        // Copy the fdtable over to a new cage...
+        let mut myhm = return_fdtable_copy(threei::TESTING_CAGEID);
+
+        // Check we got what we expected...
+        assert_eq!(
+            *(myhm.get(&my_virt_fd1).unwrap()),
+            FDTableEntry {
+                realfd: 10,
+                should_cloexec: false,
+                optionalinfo: 150
+            }
+        );
+        assert_eq!(
+            *(myhm.get(&my_virt_fd2).unwrap()),
+            FDTableEntry {
+                realfd: 4,
+                should_cloexec: true,
+                optionalinfo: 250
+            }
+        );
+
+        myhm.insert(
+            my_virt_fd1,
+            FDTableEntry {
+                realfd: 2,
+                should_cloexec: false,
+                optionalinfo: 15,
+            },
+        )
+        .unwrap();
+
+        // has my hashmap been updated?
+        assert_eq!(
+            *(myhm.get(&my_virt_fd1).unwrap()),
+            FDTableEntry {
+                realfd: 2,
+                should_cloexec: false,
+                optionalinfo: 15
+            }
+        );
+
+        // Check to make sure the actual table is still intact...
+        assert_eq!(
+            150,
+            get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd1).unwrap()
+        );
+        assert_eq!(
+            250,
+            get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd2).unwrap()
         );
     }
 
