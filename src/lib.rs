@@ -258,11 +258,25 @@ pub fn set_cloexec(cageid:u64,virtualfd:u64,is_cloexec:bool) -> Result<(), three
 #[cfg(test)]
 mod tests {
 
+    use std::sync::Mutex;
+
+    // I'm having a global testing mutex because otherwise the tests will
+    // run concurrently.  This messes up some tests, especially testing
+    // that tries to get all FDs, etc.
+    lazy_static! {
+        // This has a junk value (a bool).  Could be anything...
+        #[derive(Debug)]
+        static ref TESTMUTEX: Mutex<bool> = {
+            Mutex::new(true)
+        };
+    }
+
     // Import the symbols, etc. in this file...
     use super::*;
 
     // Helper to empty out state so we can test with a clean system...
     fn flush_fdtable() {
+
         let mut fdtable = GLOBALFDTABLE.lock().unwrap();
         _ = fdtable.drain();
         fdtable.insert(threei::TESTING_CAGEID,HashMap::new());
@@ -274,6 +288,7 @@ mod tests {
     // find the value in the table afterwards...
     fn get_and_translate_work() {
 
+        let mut _thelock = TESTMUTEX.lock().unwrap();
         flush_fdtable();
 
         const REALFD:u64 = 10;
@@ -290,6 +305,7 @@ mod tests {
     // Let's see if I can change the cloexec flag...
     fn try_set_cloexec() {
 
+        let mut _thelock = TESTMUTEX.lock().unwrap();
         flush_fdtable();
 
         const REALFD:u64 = 10;
@@ -302,6 +318,7 @@ mod tests {
     // Let's test to see our functions error gracefully with badfds...
     fn badfd_test() {
 
+        let mut _thelock = TESTMUTEX.lock().unwrap();
         flush_fdtable();
 
         // some made up number...
@@ -315,6 +332,7 @@ mod tests {
     #[test]
     fn use_all_fds_test() {
 
+        let mut _thelock = TESTMUTEX.lock().unwrap();
         flush_fdtable();
 
         const REALFD:u64 = 10;
@@ -339,6 +357,44 @@ mod tests {
         }
 
     }
+
+
+    #[test]
+    #[should_panic]
+    #[ignore]  // Don't run by default because it poisons the GLOBALFDTABLE 
+               // when panicking
+    // Let's check to make sure we panic with an invalid cageid
+    fn translate_panics_on_bad_cageid_test() {
+
+        // Should only run individually, so no need to lock...
+
+        let _ = translate_virtual_fd(threei::INVALID_CAGEID, 10);
+    }
+
+    #[test]
+    #[should_panic]
+    #[ignore]  // Don't run by default because it poisons the GLOBALFDTABLE 
+               // when panicking
+    // Let's check to make sure we panic with an invalid cageid
+    fn get_unused_virtual_fd_panics_on_bad_cageid_test() {
+
+        // Should only run individually, so no need to lock...
+
+        let _ = get_unused_virtual_fd(threei::INVALID_CAGEID,10,false,100);
+    }
+
+    #[test]
+    #[should_panic]
+    #[ignore]  // Don't run by default because it poisons the GLOBALFDTABLE 
+               // when panicking
+    // Let's check to make sure we panic with an invalid cageid
+    fn set_cloexec_panics_on_bad_cageid_test() {
+
+        // Should only run individually, so no need to lock...
+
+        let _ = set_cloexec(threei::INVALID_CAGEID,10,true);
+    }
+
 }
 
 
