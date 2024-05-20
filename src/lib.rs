@@ -4,6 +4,11 @@ mod threei;
 
 use lazy_static::lazy_static;
 
+/* AW */
+use libc::{fd_set, FD_ISSET, FD_SET, pollfd};
+use std::os::fd::RawFd;
+use libc::pollfd;
+
 use std::sync::Mutex;
 
 use std::collections::HashMap;
@@ -127,6 +132,9 @@ const TOTAL_FD_MAX: u64 = 4096;
 lazy_static! {
 
   #[derive(Debug)]
+  /* AW:
+  *     GLOBALFDTABLE = <cageid, <virtualfd, FDTableEntry>> 
+  */
   static ref GLOBALFDTABLE: Mutex<HashMap<u64, HashMap<u64,FDTableEntry>>> = {
     let mut m = HashMap::new();
     // Insert a cage so that I have something to fork / test later, if need
@@ -146,6 +154,72 @@ pub struct FDTableEntry {
     should_cloexec: bool, // should I close this when exec is called?
     optionalinfo: u64,    // user specified / controlled data
 }
+
+/* -------------------------------------------------------------------------------------- */
+/* AW:
+*   Implement functions for fd_set conversion to use select() call
+*   We won't change value inside of Vec, so only using borrow immutable reference
+*   for virtual_to_real_set
+*   Reference: https://github.com/rust-lang/libc/issues/475
+*/
+pub fn virtual_to_real_set(cageid: u64, virtualfds: &Vec<u64>) -> fd_set {
+    let fdtable = GLOBALFDTABLE.lock().unwrap();
+    if !fdtable.contains_key(&cageid) {
+        panic!("Unknown cageid in fdtable access");
+    }
+
+    // Decalre a new libc::fd_set
+    let mut real_set = unsafe { std::mem::zeroed::<fd_set>() };
+
+    for &virtualfd in virtualfds {
+        let real_fd = translate_virtual_fd(cageid, virtualfd).unwrap() as RawFd;
+        unsafe { FD_SET(real_fd, &mut real_set) };
+    }
+
+    real_set    
+}
+
+pub fn real_to_virtual_set(cageid: u64, real_fds: &fd_set) -> Vec<u64> {
+    let fdtable = GLOBALFDTABLE.lock().unwrap();
+    if !fdtable.contains_key(&cageid) {
+        panic!("Unknown cageid in fdtable access");
+    }
+
+    let mut virtual_set = Vec::new();
+
+    if let Some(virtual_fds) = fdtable.get(&cageid) {
+        for (&virtual_fd, entry) in virtual_fds {
+            let real_fd = entry.realfd as RawFd;
+            if unsafe { FD_ISSET(real_fd, real_fds) } {
+                virtual_set.push(virtual_fd);
+            }
+        }
+    }
+
+    virtual_set
+}
+
+/* AW:
+*   Implemnent data structure and fd conversion for poll()
+*/
+pub struct PollStruct {
+    pub virtual_fd: u64,
+    pub events: i16,
+    pub revents: i16,
+}
+
+pub fn virtual_to_real_poll(cageid: u64, virtual_poll: PollStruct) -> pollfd {
+    let real_fd = translate_virtual_fd(cageid, virtual_poll.virtual_fd).unwrap();
+    
+    let poll_fd = pollfd {
+        fd: real_fd as i32,
+        events: virtual_poll.events,
+        revents: virtual_poll.revents,
+    };
+
+    poll_fd
+}
+/* -------------------------------------------------------------------------------------- */
 
 pub fn translate_virtual_fd(cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
     // Get the lock on the fdtable...  I'm not handling "poisoned locks" now
