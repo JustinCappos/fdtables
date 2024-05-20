@@ -1,6 +1,6 @@
 #![feature(hash_extract_if)]
 
-mod threei;
+pub mod threei;
 
 use lazy_static::lazy_static;
 
