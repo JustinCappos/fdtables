@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 libc = "0.2"
+dashmap = { version = "5.1", features=["serde"] }
 
 [dependencies.lazy_static]
 version = "1.0"
@@ -16,4 +17,9 @@ criterion = { version = "0.3", features = ["html_reports"]}
 [[bench]]
 name = "virt_basics"
 path = "benches/virt_basics.rs"
+harness= false
+
+[[bench]]
+name = "primitives"
+path = "benches/primitives.rs"
 harness= false

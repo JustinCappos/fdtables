@@ -90,11 +90,11 @@ use std::collections::HashMap;
 //       ENFILE The system-wide limit on the total number of open files
 //              has been reached.
 
-const FD_PER_PROCESS_MAX: u64 = 1024;
+pub const FD_PER_PROCESS_MAX: u64 = 1024;
 
 // BUG / TODO: Use this in some sane way...
 #[allow(dead_code)]
-const TOTAL_FD_MAX: u64 = 4096;
+pub const TOTAL_FD_MAX: u64 = 4096;
 
 // It's fairly easy to check the fd count on a per-process basis (I just check
 // when I would
@@ -141,10 +141,10 @@ lazy_static! {
 // These are the values we look up with at the end...
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FDTableEntry {
-    realfd: u64, // underlying fd (may be a virtual fd below us or
+    pub realfd: u64, // underlying fd (may be a virtual fd below us or
     // a kernel fd)
-    should_cloexec: bool, // should I close this when exec is called?
-    optionalinfo: u64,    // user specified / controlled data
+    pub should_cloexec: bool, // should I close this when exec is called?
+    pub optionalinfo: u64,    // user specified / controlled data
 }
 
 pub fn translate_virtual_fd(cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
@@ -373,6 +373,14 @@ pub fn return_fdtable_copy(cageid: u64) -> HashMap<u64, FDTableEntry> {
     fdtable.get(&cageid).unwrap().clone()
 }
 
+
+// Helper to empty out state so we can test with a clean system...
+pub fn _flush_fdtable() {
+    let mut fdtable = GLOBALFDTABLE.lock().unwrap();
+    _ = fdtable.drain();
+    fdtable.insert(threei::TESTING_CAGEID, HashMap::new());
+}
+
 /***************************** TESTS FOLLOW ******************************/
 
 // I'm including my unit tests in-line, in this code.  Integration tests will
@@ -396,19 +404,13 @@ mod tests {
     // Import the symbols, etc. in this file...
     use super::*;
 
-    // Helper to empty out state so we can test with a clean system...
-    fn flush_fdtable() {
-        let mut fdtable = GLOBALFDTABLE.lock().unwrap();
-        _ = fdtable.drain();
-        fdtable.insert(threei::TESTING_CAGEID, HashMap::new());
-    }
 
     #[test]
     // Basic test to ensure that I can get a virtual fd for a real fd and
     // find the value in the table afterwards...
     fn get_and_translate_work() {
         let mut _thelock = TESTMUTEX.lock().unwrap();
-        flush_fdtable();
+        _flush_fdtable();
 
         const REALFD: u64 = 10;
         // Acquire a virtual fd...
@@ -426,7 +428,7 @@ mod tests {
     // Let's see if I can change the cloexec flag...
     fn try_set_cloexec() {
         let mut _thelock = TESTMUTEX.lock().unwrap();
-        flush_fdtable();
+        _flush_fdtable();
 
         const REALFD: u64 = 10;
         // Acquire a virtual fd...
@@ -438,7 +440,7 @@ mod tests {
     // Get and set optionalinfo
     fn try_get_and_set_optionalinfo() {
         let mut _thelock = TESTMUTEX.lock().unwrap();
-        flush_fdtable();
+        _flush_fdtable();
 
         // Acquire two virtual fds...
         let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
@@ -465,7 +467,7 @@ mod tests {
     #[test]
     fn test_remove_cage_from_fdtable() {
         let mut _thelock = TESTMUTEX.lock().unwrap();
-        flush_fdtable();
+        _flush_fdtable();
 
         // Acquire two virtual fds...
         let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
@@ -486,7 +488,7 @@ mod tests {
     #[test]
     fn test_empty_fds_for_exec() {
         let mut _thelock = TESTMUTEX.lock().unwrap();
-        flush_fdtable();
+        _flush_fdtable();
 
         // Acquire two virtual fds...
         let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
@@ -510,7 +512,7 @@ mod tests {
     #[test]
     fn return_fdtable_copy_test() {
         let mut _thelock = TESTMUTEX.lock().unwrap();
-        flush_fdtable();
+        _flush_fdtable();
         // Acquire two virtual fds...
         let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
         let my_virt_fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 4, true, 250).unwrap();
@@ -570,7 +572,7 @@ mod tests {
     #[test]
     fn test_copy_fdtable_for_cage() {
         let mut _thelock = TESTMUTEX.lock().unwrap();
-        flush_fdtable();
+        _flush_fdtable();
 
         // Acquire two virtual fds...
         let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
@@ -613,7 +615,7 @@ mod tests {
     // Let's test to see our functions error gracefully with badfds...
     fn get_specific_virtual_fd_tests() {
         let mut _thelock = TESTMUTEX.lock().unwrap();
-        flush_fdtable();
+        _flush_fdtable();
 
         let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
 
@@ -651,7 +653,7 @@ mod tests {
     // Let's test to see our functions error gracefully with badfds...
     fn badfd_test() {
         let mut _thelock = TESTMUTEX.lock().unwrap();
-        flush_fdtable();
+        _flush_fdtable();
 
         // some made up number...
         let my_virt_fd = 135;
@@ -665,7 +667,7 @@ mod tests {
     #[test]
     fn use_all_fds_test() {
         let mut _thelock = TESTMUTEX.lock().unwrap();
-        flush_fdtable();
+        _flush_fdtable();
 
         const REALFD: u64 = 10;
         for current in 0..FD_PER_PROCESS_MAX {
@@ -690,7 +692,7 @@ mod tests {
         // If the test is failing by not triggering here, we're not stopping
         // at the limit...
         if get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 100).is_err() {
-            flush_fdtable();
+            _flush_fdtable();
         } else {
             panic!("Should have raised an error...");
         }
