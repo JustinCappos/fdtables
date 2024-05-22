@@ -410,7 +410,7 @@ pub fn run_benchmark(c: &mut Criterion) {
 
 }
 
-pub fn do_a_benchmark(c: &mut Criterion,mut algorithm: impl FDTableTestable, algoname:&str) {
+pub fn do_a_benchmark(c: &mut Criterion,mut algorithm: impl FDTableTestable + 'static, algoname:&str) {
 
     let mut group = c.benchmark_group("primitives basics");
     // Set it up...
@@ -471,19 +471,18 @@ pub fn do_a_benchmark(c: &mut Criterion,mut algorithm: impl FDTableTestable, alg
     let _fd3 = algorithm.get_unused_virtual_fd(threei::TESTING_CAGEID, 30, true, 300).unwrap();
 
     let mut thread_handle_vec:Vec<thread::JoinHandle<()>> = Vec::new();
+    let algwrapper = Arc::new(algorithm);
 
-
-    group.bench_function(format!("{}: translate_virtual_fd (10000)",algoname),
-            |b| b.iter({
-                let algwrapper = Arc::new(algorithm);
+    group.bench_function(format!("{}: translate_virtual_fd (10000)",algoname), |b| b.iter({ 
+        || {
                 let newalgorithm  = Arc::clone(&algwrapper);
-                move|| { 
                 thread_handle_vec.push(thread::spawn(move || {
                     for _ in [0..1000].iter() {
                         newalgorithm.translate_virtual_fd(threei::TESTING_CAGEID, fd).unwrap();
                     }
                 }));
-            }})
+            }}
+        )
         );
 
     for handle in thread_handle_vec {
