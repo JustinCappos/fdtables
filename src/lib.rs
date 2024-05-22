@@ -4,7 +4,6 @@ pub mod threei;
 
 use lazy_static::lazy_static;
 
-/* AW */
 use libc::{fd_set, FD_ISSET, FD_SET, pollfd};
 use std::os::fd::RawFd;
 
@@ -406,13 +405,8 @@ pub fn return_fdtable_copy(cageid: u64) -> HashMap<u64, FDTableEntry> {
 *   Reference: https://github.com/rust-lang/libc/issues/475
 */
 pub fn virtual_to_real_set(cageid: u64, virtualfds: &Vec<u64>) -> fd_set {
-    let fdtable = GLOBALFDTABLE.lock().unwrap();
-    if !fdtable.contains_key(&cageid) {
-        panic!("Unknown cageid in fdtable access");
-    }
-
+    
     let mut real_set = unsafe { std::mem::zeroed::<fd_set>() };
-
     for &virtualfd in virtualfds {
         let real_fd = translate_virtual_fd(cageid, virtualfd).unwrap() as RawFd;
         unsafe { FD_SET(real_fd, &mut real_set) };
@@ -422,7 +416,7 @@ pub fn virtual_to_real_set(cageid: u64, virtualfds: &Vec<u64>) -> fd_set {
 }
 
 /*
-*   Implement the converse one incase we need this in future 
+*   Implement the converse one. Currently using for testing purpose.
 */
 pub fn real_to_virtual_set(cageid: u64, real_fds: &fd_set) -> Vec<u64> {
     let fdtable = GLOBALFDTABLE.lock().unwrap();
@@ -457,9 +451,6 @@ pub struct PollStruct {
     pub revents: i16,
 }
 
-/* [TODO]
-*   PollStruct has multiple..? 
-*/
 pub fn virtual_to_real_poll(cageid: u64, virtual_poll: PollStruct) -> pollfd {
     let real_fd = translate_virtual_fd(cageid, virtual_poll.virtual_fd).unwrap();
 
@@ -478,9 +469,12 @@ pub fn virtual_to_real_poll(cageid: u64, virtual_poll: PollStruct) -> pollfd {
 // exist in the tests/ directory.
 #[cfg(test)]
 mod tests {
-
-    use std::sync::Mutex;
-
+    // Import the symbols, etc. in this file...
+    use super::*;
+    use std::fs::File;
+    use std::os::unix::io::AsRawFd;
+    use libc::POLLIN;
+    
     // I'm having a global testing mutex because otherwise the tests will
     // run concurrently.  This messes up some tests, especially testing
     // that tries to get all FDs, etc.
@@ -491,9 +485,6 @@ mod tests {
             Mutex::new(true)
         };
     }
-
-    // Import the symbols, etc. in this file...
-    use super::*;
 
     // Helper to empty out state so we can test with a clean system...
     fn flush_fdtable() {
@@ -793,6 +784,97 @@ mod tests {
         } else {
             panic!("Should have raised an error...");
         }
+    }
+
+    #[test]
+    fn rm_virtual_fd_test() {
+        let mut _thelock = TESTMUTEX.lock().unwrap();
+        flush_fdtable();
+
+        // Acquire virtual fds...
+        let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
+        let my_virt_fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 11, false, 100).unwrap();
+        
+        // Remove the the first fd
+        let _ = rm_virtual_fd(threei::TESTING_CAGEID, my_virt_fd1);
+
+        let myhm = return_fdtable_copy(threei::TESTING_CAGEID);
+
+        // Make sure we only delete the first one
+        assert_eq!(myhm.get(&my_virt_fd1), None);
+        assert_eq!(
+            *(myhm.get(&my_virt_fd2).unwrap()),
+            FDTableEntry {
+                realfd: 11,
+                should_cloexec: false,
+                optionalinfo: 100
+            }
+        );
+    }
+
+    #[test]
+    // Test for fd_set structure conversion for select() syscall
+    // We use Result<(), std::io::Error> as return type to open an actual file
+    fn fd_set_test() -> Result<(), std::io::Error>{
+        let mut _thelock = TESTMUTEX.lock().unwrap();
+        flush_fdtable();
+        
+        // Because fd_set is a kernel data structure, we need to open actual files to get the real
+        // kernel file descriptors (fds). Rust will automatically close the files after they go out of scope,
+        // so we don't need to manually close them.
+        let realfile_1 = File::open("test1.txt")?;
+        let realfd_1 = realfile_1.as_raw_fd();
+
+        let realfile_2 = File::open("test2.txt")?;
+        let realfd_2 = realfile_2.as_raw_fd();
+
+        // Acquire virtual fds to create virtual fd table
+        let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, realfd_1 as u64, false, 150).unwrap();
+        let my_virt_fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, realfd_2 as u64, false, 100).unwrap();
+
+        // Create virtual fd_set
+        let mut virtual_set = Vec::new();
+        virtual_set.push(my_virt_fd1);
+        virtual_set.push(my_virt_fd2);
+
+        // Convert to real fd_set
+        let real_set = virtual_to_real_set(threei::TESTING_CAGEID, &virtual_set);
+        // Convert back to virtual fd_set
+        let sorted_virtual_set = real_to_virtual_set(threei::TESTING_CAGEID, &real_set).sort();
+        // Since the sequence of the elements may change, sort them before comparing.
+        let sorted_origin_set = virtual_set.sort();
+        assert_eq!(sorted_virtual_set, sorted_origin_set);
+        Ok(())
+    }
+
+    #[test]
+    // Test for lind PollStruct and the conversion between lind PollStruct and kernel pollfd
+    // We use Result<(), std::io::Error> as return type to open an actual file
+    fn poll_struct_test() -> Result<(), std::io::Error> {
+        let _thelock = TESTMUTEX.lock().unwrap();
+        flush_fdtable();
+        // Because pollfd is a kernel data structure, we need to open actual files to get the real
+        // kernel file descriptor. Rust will automatically close the files after they go out of scope,
+        // so we don't need to manually close them.
+        let realfile = File::open("test1.txt")?;
+        let realfd = realfile.as_raw_fd();
+
+        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, realfd as u64, false, 150).unwrap();
+        // Define lind PollStruct according to virtual fd we get
+        let pollstruct = PollStruct {
+            virtual_fd: my_virt_fd,
+            events: POLLIN,
+            revents: 0,
+        };
+
+        let real_poll = virtual_to_real_poll(threei::TESTING_CAGEID, pollstruct);
+
+        // Check that each item conforms to expectations
+        assert_eq!(real_poll.fd, realfd);
+        assert_eq!(real_poll.events, POLLIN);
+        assert_eq!(real_poll.revents, 0);
+
+        Ok(())
     }
 
     #[test]
