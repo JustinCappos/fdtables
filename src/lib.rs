@@ -373,7 +373,6 @@ pub fn return_fdtable_copy(cageid: u64) -> HashMap<u64, FDTableEntry> {
     fdtable.get(&cageid).unwrap().clone()
 }
 
-
 // Helper to empty out state so we can test with a clean system...
 pub fn _flush_fdtable() {
     let mut fdtable = GLOBALFDTABLE.lock().unwrap();
@@ -403,7 +402,6 @@ mod tests {
 
     // Import the symbols, etc. in this file...
     use super::*;
-
 
     #[test]
     // Basic test to ensure that I can get a virtual fd for a real fd and

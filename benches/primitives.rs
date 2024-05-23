@@ -1,13 +1,13 @@
 /* Here I'm testing a few basic design choices around how to implement
  * the fdtables library.  In this way, another person can later look and
  * see what I tried and why I decided to do this in the way I did.
- * The main part of this testing will focus on the virtual fd -> real fd 
+ * The main part of this testing will focus on the virtual fd -> real fd
  * translation as well as virtual fd acquisition will be the focus since
  * they are the most common operations.  */
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 
-use std::sync::{Mutex,Arc};
+use std::sync::{Arc, Mutex};
 
 use std::thread;
 
@@ -56,19 +56,34 @@ use fdtables::*;
 
 // --- Solutions with per-fd locking ---
 //  Vec<Arc<parking_lot::RwLock<Option<FDTableEntry>>>> Space is ~40KB per cage
-//      Quite similar to the initial RustPOSIX implementation.  The vector is 
-//      populated with 1024 entries at all times.  The locks exist at all 
-//      times, even when the fds are not allocated.  This lets different 
+//      Quite similar to the initial RustPOSIX implementation.  The vector is
+//      populated with 1024 entries at all times.  The locks exist at all
+//      times, even when the fds are not allocated.  This lets different
 //      threads access the same fd without a race, etc.
 //
 
 pub trait FDTableTestable: Send + Sync {
     fn refresh(&mut self); //both initializes and cleans up, as is needed...
-    fn translate_virtual_fd(&self,cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal>;
-    fn get_unused_virtual_fd(&mut self, cageid: u64, realfd: u64, should_cloexec: bool, optionalinfo: u64,) -> Result<u64, threei::RetVal>;
+    fn translate_virtual_fd(&self, cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal>;
+    fn get_unused_virtual_fd(
+        &mut self,
+        cageid: u64,
+        realfd: u64,
+        should_cloexec: bool,
+        optionalinfo: u64,
+    ) -> Result<u64, threei::RetVal>;
     fn get_optionalinfo(&self, cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal>;
-    fn set_optionalinfo(&mut self, cageid: u64, virtualfd: u64, optionalinfo: u64,) -> Result<(), threei::RetVal>;
-    fn copy_fdtable_for_cage(&mut self, srccageid: u64, newcageid: u64) -> Result<(), threei::Errno>;
+    fn set_optionalinfo(
+        &mut self,
+        cageid: u64,
+        virtualfd: u64,
+        optionalinfo: u64,
+    ) -> Result<(), threei::RetVal>;
+    fn copy_fdtable_for_cage(
+        &mut self,
+        srccageid: u64,
+        newcageid: u64,
+    ) -> Result<(), threei::Errno>;
 }
 
 //unsafe impl Send for FDTableTestable {}
@@ -78,24 +93,23 @@ pub trait FDTableTestable: Send + Sync {
 
 //  HashMap<u64,HashMap<u64,FDTableEntry>>
 pub struct UnlockedComparison {
-    fdtable:HashMap<u64,HashMap<u64,FDTableEntry>>,
+    fdtable: HashMap<u64, HashMap<u64, FDTableEntry>>,
 }
 
 unsafe impl Send for UnlockedComparison {}
 unsafe impl Sync for UnlockedComparison {}
 
-
 // This is basically all copied from the locked version of this code...
 impl FDTableTestable for UnlockedComparison {
-    // Setup or destroy and recreate the hashmap by creating a new one and 
+    // Setup or destroy and recreate the hashmap by creating a new one and
     // throwing away the old.  I'll use this before the first test and between
     // sets of tests...
     fn refresh(&mut self) {
         self.fdtable = HashMap::new();
-        self.fdtable.insert(threei::TESTING_CAGEID,HashMap::new());
+        self.fdtable.insert(threei::TESTING_CAGEID, HashMap::new());
     }
 
-    fn translate_virtual_fd(&self,cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
+    fn translate_virtual_fd(&self, cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
         if !self.fdtable.contains_key(&cageid) {
             panic!("Unknown cageid in fdtable access");
         }
@@ -106,7 +120,13 @@ impl FDTableTestable for UnlockedComparison {
         };
     }
 
-    fn get_unused_virtual_fd(&mut self, cageid: u64, realfd: u64, should_cloexec: bool, optionalinfo: u64,) -> Result<u64, threei::RetVal> {
+    fn get_unused_virtual_fd(
+        &mut self,
+        cageid: u64,
+        realfd: u64,
+        should_cloexec: bool,
+        optionalinfo: u64,
+    ) -> Result<u64, threei::RetVal> {
         if !self.fdtable.contains_key(&cageid) {
             panic!("Unknown cageid in fdtable access");
         }
@@ -119,7 +139,12 @@ impl FDTableTestable for UnlockedComparison {
 
         // Check the fds in order.
         for fdcandidate in 0..FD_PER_PROCESS_MAX {
-            if !self.fdtable.get(&cageid).unwrap().contains_key(&fdcandidate) {
+            if !self
+                .fdtable
+                .get(&cageid)
+                .unwrap()
+                .contains_key(&fdcandidate)
+            {
                 // I just checked.  Should not be there...
                 self.fdtable
                     .get_mut(&cageid)
@@ -131,7 +156,6 @@ impl FDTableTestable for UnlockedComparison {
 
         // I must have checked all fds and failed to find one open.  Fail!
         Err(threei::Errno::EMFILE as u64)
-
     }
 
     fn get_optionalinfo(&self, cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
@@ -140,12 +164,17 @@ impl FDTableTestable for UnlockedComparison {
         }
 
         return match self.fdtable.get(&cageid).unwrap().get(&virtualfd) {
-            Some(tableentry) => Ok(tableentry.optionalinfo), 
+            Some(tableentry) => Ok(tableentry.optionalinfo),
             None => Err(threei::Errno::EBADFD as u64),
         };
     }
 
-    fn set_optionalinfo(&mut self, cageid: u64, virtualfd: u64, optionalinfo: u64,) -> Result<(), threei::RetVal> {
+    fn set_optionalinfo(
+        &mut self,
+        cageid: u64,
+        virtualfd: u64,
+        optionalinfo: u64,
+    ) -> Result<(), threei::RetVal> {
         if !self.fdtable.contains_key(&cageid) {
             panic!("Unknown cageid in fdtable access");
         }
@@ -158,17 +187,20 @@ impl FDTableTestable for UnlockedComparison {
             }
             None => Err(threei::Errno::EBADFD as u64),
         };
-
     }
 
-    fn copy_fdtable_for_cage(&mut self, srccageid: u64, newcageid: u64) -> Result<(), threei::Errno> {
+    fn copy_fdtable_for_cage(
+        &mut self,
+        srccageid: u64,
+        newcageid: u64,
+    ) -> Result<(), threei::Errno> {
         if !self.fdtable.contains_key(&srccageid) {
             panic!("Unknown srccageid in fdtable access");
         }
         if self.fdtable.contains_key(&newcageid) {
             panic!("Known newcageid in fdtable access");
         }
-    
+
         // Insert a copy and ensure it didn't exist...
         let hmcopy = self.fdtable.get(&srccageid).unwrap().clone();
         assert!(self.fdtable.insert(newcageid, hmcopy).is_none());
@@ -176,14 +208,13 @@ impl FDTableTestable for UnlockedComparison {
         // I'm not going to bother to check the number of fds used overall yet...
         //    Err(threei::Errno::EMFILE as u64),
     }
-
 }
 
 // ------------------ !!!!!    Global Vanilla    !!!!! ------------------ //
-    
+
 //  Mutex<HashMap<u64,HashMap<u64,FDTableEntry>>>
 struct GlobalVanilla {
-    globalfdtable: Mutex<HashMap<u64, HashMap<u64,FDTableEntry>>>,
+    globalfdtable: Mutex<HashMap<u64, HashMap<u64, FDTableEntry>>>,
 }
 
 unsafe impl Send for GlobalVanilla {}
@@ -191,17 +222,17 @@ unsafe impl Sync for GlobalVanilla {}
 
 // This is basically all copied from the locked version of this code...
 impl FDTableTestable for GlobalVanilla {
-    // Setup or destroy and recreate the hashmap by creating a new one and 
+    // Setup or destroy and recreate the hashmap by creating a new one and
     // throwing away the old.  I'll use this before the first test and between
     // sets of tests...
     fn refresh(&mut self) {
         let mut fdtable = self.globalfdtable.lock().unwrap();
         _ = fdtable.drain();
         *fdtable = HashMap::new();
-        fdtable.insert(threei::TESTING_CAGEID,HashMap::new());
+        fdtable.insert(threei::TESTING_CAGEID, HashMap::new());
     }
 
-    fn translate_virtual_fd(&self,cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
+    fn translate_virtual_fd(&self, cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
         let fdtable = self.globalfdtable.lock().unwrap();
         if !fdtable.contains_key(&cageid) {
             panic!("Unknown cageid in fdtable access");
@@ -213,7 +244,13 @@ impl FDTableTestable for GlobalVanilla {
         };
     }
 
-    fn get_unused_virtual_fd(&mut self, cageid: u64, realfd: u64, should_cloexec: bool, optionalinfo: u64,) -> Result<u64, threei::RetVal> {
+    fn get_unused_virtual_fd(
+        &mut self,
+        cageid: u64,
+        realfd: u64,
+        should_cloexec: bool,
+        optionalinfo: u64,
+    ) -> Result<u64, threei::RetVal> {
         let mut fdtable = self.globalfdtable.lock().unwrap();
         if !fdtable.contains_key(&cageid) {
             panic!("Unknown cageid in fdtable access");
@@ -239,7 +276,6 @@ impl FDTableTestable for GlobalVanilla {
 
         // I must have checked all fds and failed to find one open.  Fail!
         Err(threei::Errno::EMFILE as u64)
-
     }
 
     fn get_optionalinfo(&self, cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
@@ -249,12 +285,17 @@ impl FDTableTestable for GlobalVanilla {
         }
 
         return match fdtable.get(&cageid).unwrap().get(&virtualfd) {
-            Some(tableentry) => Ok(tableentry.optionalinfo), 
+            Some(tableentry) => Ok(tableentry.optionalinfo),
             None => Err(threei::Errno::EBADFD as u64),
         };
     }
 
-    fn set_optionalinfo(&mut self, cageid: u64, virtualfd: u64, optionalinfo: u64,) -> Result<(), threei::RetVal> {
+    fn set_optionalinfo(
+        &mut self,
+        cageid: u64,
+        virtualfd: u64,
+        optionalinfo: u64,
+    ) -> Result<(), threei::RetVal> {
         let mut fdtable = self.globalfdtable.lock().unwrap();
         if !fdtable.contains_key(&cageid) {
             panic!("Unknown cageid in fdtable access");
@@ -268,10 +309,13 @@ impl FDTableTestable for GlobalVanilla {
             }
             None => Err(threei::Errno::EBADFD as u64),
         };
-
     }
 
-    fn copy_fdtable_for_cage(&mut self, srccageid: u64, newcageid: u64) -> Result<(), threei::Errno> {
+    fn copy_fdtable_for_cage(
+        &mut self,
+        srccageid: u64,
+        newcageid: u64,
+    ) -> Result<(), threei::Errno> {
         let mut fdtable = self.globalfdtable.lock().unwrap();
         if !fdtable.contains_key(&srccageid) {
             panic!("Unknown srccageid in fdtable access");
@@ -279,7 +323,7 @@ impl FDTableTestable for GlobalVanilla {
         if fdtable.contains_key(&newcageid) {
             panic!("Known newcageid in fdtable access");
         }
-    
+
         // Insert a copy and ensure it didn't exist...
         let hmcopy = fdtable.get(&srccageid).unwrap().clone();
         assert!(fdtable.insert(newcageid, hmcopy).is_none());
@@ -287,14 +331,13 @@ impl FDTableTestable for GlobalVanilla {
         // I'm not going to bother to check the number of fds used overall yet...
         //    Err(threei::Errno::EMFILE as u64),
     }
-
 }
 
 // ------------------ !!!!!    Global Dashmap    !!!!! ------------------ //
 
 //  DashMap<u64,HashMap<u64,FDTableEntry>>
 pub struct DashMapComparison {
-    pub fdtable: dashmap::DashMap<u64,HashMap<u64,FDTableEntry>>,
+    pub fdtable: dashmap::DashMap<u64, HashMap<u64, FDTableEntry>>,
 }
 
 unsafe impl Send for DashMapComparison {}
@@ -302,15 +345,15 @@ unsafe impl Sync for DashMapComparison {}
 
 // This is basically all copied from the locked version of this code...
 impl FDTableTestable for DashMapComparison {
-    // Setup or destroy and recreate the hashmap by creating a new one and 
+    // Setup or destroy and recreate the hashmap by creating a new one and
     // throwing away the old.  I'll use this before the first test and between
     // sets of tests...
     fn refresh(&mut self) {
         self.fdtable = dashmap::DashMap::new();
-        self.fdtable.insert(threei::TESTING_CAGEID,HashMap::new());
+        self.fdtable.insert(threei::TESTING_CAGEID, HashMap::new());
     }
 
-    fn translate_virtual_fd(&self,cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
+    fn translate_virtual_fd(&self, cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
         if !self.fdtable.contains_key(&cageid) {
             panic!("Unknown cageid in fdtable access");
         }
@@ -321,7 +364,13 @@ impl FDTableTestable for DashMapComparison {
         };
     }
 
-    fn get_unused_virtual_fd(&mut self, cageid: u64, realfd: u64, should_cloexec: bool, optionalinfo: u64,) -> Result<u64, threei::RetVal> {
+    fn get_unused_virtual_fd(
+        &mut self,
+        cageid: u64,
+        realfd: u64,
+        should_cloexec: bool,
+        optionalinfo: u64,
+    ) -> Result<u64, threei::RetVal> {
         if !self.fdtable.contains_key(&cageid) {
             panic!("Unknown cageid in fdtable access");
         }
@@ -334,7 +383,12 @@ impl FDTableTestable for DashMapComparison {
 
         // Check the fds in order.
         for fdcandidate in 0..FD_PER_PROCESS_MAX {
-            if !self.fdtable.get(&cageid).unwrap().contains_key(&fdcandidate) {
+            if !self
+                .fdtable
+                .get(&cageid)
+                .unwrap()
+                .contains_key(&fdcandidate)
+            {
                 // I just checked.  Should not be there...
                 self.fdtable
                     .get_mut(&cageid)
@@ -346,7 +400,6 @@ impl FDTableTestable for DashMapComparison {
 
         // I must have checked all fds and failed to find one open.  Fail!
         Err(threei::Errno::EMFILE as u64)
-
     }
 
     fn get_optionalinfo(&self, cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
@@ -355,12 +408,17 @@ impl FDTableTestable for DashMapComparison {
         }
 
         return match self.fdtable.get(&cageid).unwrap().get(&virtualfd) {
-            Some(tableentry) => Ok(tableentry.optionalinfo), 
+            Some(tableentry) => Ok(tableentry.optionalinfo),
             None => Err(threei::Errno::EBADFD as u64),
         };
     }
 
-    fn set_optionalinfo(&mut self, cageid: u64, virtualfd: u64, optionalinfo: u64,) -> Result<(), threei::RetVal> {
+    fn set_optionalinfo(
+        &mut self,
+        cageid: u64,
+        virtualfd: u64,
+        optionalinfo: u64,
+    ) -> Result<(), threei::RetVal> {
         if !self.fdtable.contains_key(&cageid) {
             panic!("Unknown cageid in fdtable access");
         }
@@ -373,17 +431,20 @@ impl FDTableTestable for DashMapComparison {
             }
             None => Err(threei::Errno::EBADFD as u64),
         };
-
     }
 
-    fn copy_fdtable_for_cage(&mut self, srccageid: u64, newcageid: u64) -> Result<(), threei::Errno> {
+    fn copy_fdtable_for_cage(
+        &mut self,
+        srccageid: u64,
+        newcageid: u64,
+    ) -> Result<(), threei::Errno> {
         if !self.fdtable.contains_key(&srccageid) {
             panic!("Unknown srccageid in fdtable access");
         }
         if self.fdtable.contains_key(&newcageid) {
             panic!("Known newcageid in fdtable access");
         }
-    
+
         // Insert a copy and ensure it didn't exist...
         let hmcopy = self.fdtable.get(&srccageid).unwrap().clone();
         assert!(self.fdtable.insert(newcageid, hmcopy).is_none());
@@ -391,108 +452,232 @@ impl FDTableTestable for DashMapComparison {
         // I'm not going to bother to check the number of fds used overall yet...
         //    Err(threei::Errno::EMFILE as u64),
     }
-
 }
-
 
 // ---*****----- !!!!! BENCHMARKS BENCHMARKS BENCHMARKS !!!!! -----*****--- //
 
 // This is a horrible hack because Rust doesn't have a good way to let you
-// name traits in the same way you do objects...  For some dumb reason I've 
-// read one can put these on the heap and it works fine, likely because the 
-// compiler doesn't know ahead of time how much space to allocate on the stack 
+// name traits in the same way you do objects...  For some dumb reason I've
+// read one can put these on the heap and it works fine, likely because the
+// compiler doesn't know ahead of time how much space to allocate on the stack
 // for this object...  Anyways, I'm going to sidestep this nonsense completely
 pub fn run_benchmark(c: &mut Criterion) {
     // I'll focus on different data structures and techniques here...
-    do_a_benchmark(c,UnlockedComparison{fdtable:HashMap::new()},"Unlocked");
-    do_a_benchmark(c,GlobalVanilla{globalfdtable:Mutex::new(HashMap::new())},"GlobalVanilla");
-    do_a_benchmark(c,DashMapComparison{fdtable:dashmap::DashMap::new()},"GlobalDashMap");
-
+    do_a_benchmark(
+        c,
+        UnlockedComparison {
+            fdtable: HashMap::new(),
+        },
+        "Unlocked",
+    );
+    do_a_benchmark(
+        c,
+        GlobalVanilla {
+            globalfdtable: Mutex::new(HashMap::new()),
+        },
+        "GlobalVanilla",
+    );
+    do_a_benchmark(
+        c,
+        DashMapComparison {
+            fdtable: dashmap::DashMap::new(),
+        },
+        "GlobalDashMap",
+    );
 }
 
-pub fn do_a_benchmark(c: &mut Criterion,mut algorithm: impl FDTableTestable + 'static, algoname:&str) {
-
+pub fn do_a_benchmark(
+    c: &mut Criterion,
+    mut algorithm: impl FDTableTestable + 'static,
+    algoname: &str,
+) {
     let mut group = c.benchmark_group("primitives basics");
     // Set it up...
     algorithm.refresh();
 
-    let fd = algorithm.get_unused_virtual_fd(threei::TESTING_CAGEID, 10, true, 100).unwrap();
-    group.bench_function(format!("{}: [single-threaded] translate_virtual_fd (10000)",algoname),
-            |b| b.iter(|| {
+    // -- Single threaded 10000K requests... -- //
+    let fd = algorithm
+        .get_unused_virtual_fd(threei::TESTING_CAGEID, 10, true, 100)
+        .unwrap();
+    group.bench_function(
+        format!(
+            "{}: [single-threaded] translate_virtual_fd (10000)",
+            algoname
+        ),
+        |b| {
+            b.iter(|| {
                 for _ in [0..1000].iter() {
-                    algorithm.translate_virtual_fd(threei::TESTING_CAGEID, fd).unwrap();
+                    algorithm
+                        .translate_virtual_fd(threei::TESTING_CAGEID, fd)
+                        .unwrap();
                 }
             })
-        );
+        },
+    );
 
     algorithm.refresh();
-    group.bench_function(format!("{}: get_translate_refresh (1000)",algoname),
-            |b| b.iter(|| {
-                for _ in [0..1000].iter() {
-                    let fd = algorithm.get_unused_virtual_fd(threei::TESTING_CAGEID, 10, true, 100).unwrap();
-                    algorithm.translate_virtual_fd(threei::TESTING_CAGEID, fd).unwrap();
-                }
-                algorithm.refresh();
-            })
-        );
 
+    // -- Single threaded get / translate / refresh... -- //
+    group.bench_function(format!("{}: get_translate_refresh (1000)", algoname), |b| {
+        b.iter(|| {
+            for _ in [0..1000].iter() {
+                let fd = algorithm
+                    .get_unused_virtual_fd(threei::TESTING_CAGEID, 10, true, 100)
+                    .unwrap();
+                algorithm
+                    .translate_virtual_fd(threei::TESTING_CAGEID, fd)
+                    .unwrap();
+            }
+            algorithm.refresh();
+        })
+    });
 
     if algoname == "Unlocked" {
         println!("--------Skipping multi-threaded tests--------!");
         group.finish();
         return;
-
     }
-
-    //use std::time::Duration;
-
-
-//    let newalgoname = algoname.clone();
-
-    /*
-    let handle = thread::spawn(move|| {
-        for _i in 1..5 {
-            print!("c {}",algoname.to_string());
-            thread::sleep(Duration::from_millis(1));
-        }
-    });
-
-    for _i in 1..5 {
-//            print!("m {}",algoname);
-            thread::sleep(Duration::from_millis(1));
-        }
-
-    handle.join().unwrap(); */
 
     // ---------------- MULTI-THREADED TESTS ------------------  //
 
-    let fd = algorithm.get_unused_virtual_fd(threei::TESTING_CAGEID, 10, true, 100).unwrap();
-    let _fd2 = algorithm.get_unused_virtual_fd(threei::TESTING_CAGEID, 20, true, 200).unwrap();
-    let _fd3 = algorithm.get_unused_virtual_fd(threei::TESTING_CAGEID, 30, true, 300).unwrap();
+    // -- Multithreaded benchmark 1: 100K translate calls --
+    
+    let fd = algorithm
+        .get_unused_virtual_fd(threei::TESTING_CAGEID, 10, true, 100)
+        .unwrap();
+    let fd2 = algorithm
+        .get_unused_virtual_fd(threei::TESTING_CAGEID, 20, true, 200)
+        .unwrap();
+    let fd3 = algorithm
+        .get_unused_virtual_fd(threei::TESTING_CAGEID, 30, true, 300)
+        .unwrap();
 
-    let mut thread_handle_vec:Vec<thread::JoinHandle<()>> = Vec::new();
     let algwrapper = Arc::new(algorithm);
 
-    group.bench_function(format!("{}: [multi-threaded] translate_virtual_fd (10000)",algoname), |b| b.iter({ 
-        || {
-                let newalgorithm  = Arc::clone(&algwrapper);
-                thread_handle_vec.push(thread::spawn(move || {
-                    for _ in [0..1000].iter() {
-                        newalgorithm.translate_virtual_fd(threei::TESTING_CAGEID, fd).unwrap();
-                    }
-                }));
-            }}
-        )
-        );
+    // I will always do 100K requests (split amongst some number of threads)
 
-    for handle in thread_handle_vec {
-        handle.join().unwrap();
+    for threadcount in [1, 2, 4, 8, 16].iter() {
+        group.bench_with_input(
+            BenchmarkId::new(
+                format!(
+                    "{}: [multi-threaded:{}] translate_virtual_fd (100K)",
+                    threadcount, algoname
+                ),
+                threadcount,
+            ),
+            threadcount,
+            |b, threadcount| {
+                b.iter({
+                    || {
+                        let mut thread_handle_vec: Vec<thread::JoinHandle<()>> = Vec::new();
+                        for _numthreads in 0..*threadcount {
+                            let newalgorithm = Arc::clone(&algwrapper);
+                            // Need to borrow so the lifetime can live outside
+                            // the thread's closure
+                            let thisthreadcount = *threadcount;
+
+                            thread_handle_vec.push(thread::spawn(move || {
+                                // Do 10K / threadcount of 10 requests each.  100K total
+                                for _ in [0..10000 / thisthreadcount].iter() {
+                                    newalgorithm
+                                        .translate_virtual_fd(threei::TESTING_CAGEID, fd)
+                                        .unwrap();
+                                    newalgorithm
+                                        .translate_virtual_fd(threei::TESTING_CAGEID, fd)
+                                        .unwrap();
+                                    newalgorithm
+                                        .translate_virtual_fd(threei::TESTING_CAGEID, fd)
+                                        .unwrap();
+                                    newalgorithm
+                                        .translate_virtual_fd(threei::TESTING_CAGEID, fd)
+                                        .unwrap();
+                                    newalgorithm
+                                        .translate_virtual_fd(threei::TESTING_CAGEID, fd2)
+                                        .unwrap();
+                                    newalgorithm
+                                        .translate_virtual_fd(threei::TESTING_CAGEID, fd2)
+                                        .unwrap();
+                                    newalgorithm
+                                        .translate_virtual_fd(threei::TESTING_CAGEID, fd2)
+                                        .unwrap();
+                                    newalgorithm
+                                        .translate_virtual_fd(threei::TESTING_CAGEID, fd3)
+                                        .unwrap();
+                                    newalgorithm
+                                        .translate_virtual_fd(threei::TESTING_CAGEID, fd3)
+                                        .unwrap();
+                                    newalgorithm
+                                        .translate_virtual_fd(threei::TESTING_CAGEID, fd3)
+                                        .unwrap();
+                                }
+                            }));
+                        }
+                        for handle in thread_handle_vec {
+                            handle.join().unwrap();
+                        }
+                    }
+                })
+            },
+        );
     }
-    //algorithm.refresh();
+
+    algorithm = Arc::into_inner(algwrapper).unwrap();
+    algorithm.refresh();
+
+    // -- Multithreaded benchmark 2: get / translate interleaved --
+
+    let algwrapper = Arc::new(algorithm);
+
+    // I will always do 100K requests (split amongst some number of threads)
+
+    for threadcount in [1, 2, 4, 8, 16].iter() {
+        group.bench_with_input(
+            BenchmarkId::new(
+                format!(
+                    "{}: [multi-threaded:{}] get_translate_refresh (1K each loop)",
+                    threadcount, algoname
+                ),
+                threadcount,
+            ),
+            threadcount,
+            |b, threadcount| {
+                b.iter({
+                    || {
+                        let mut thread_handle_vec: Vec<thread::JoinHandle<()>> = Vec::new();
+                        for _numthreads in 0..*threadcount {
+                            let newalgorithm = Arc::clone(&algwrapper);
+                            // Need to borrow so the lifetime can live outside
+                            // the thread's closure
+                            let thisthreadcount = *threadcount;
+
+                            thread_handle_vec.push(thread::spawn(move || {
+                                // Do 1K / threadcount of 10 requests each.  100K total
+                                for _ in [0..1000 / thisthreadcount].iter() {
+                                    let fd = newalgorithm
+                                       .get_unused_virtual_fd(threei::TESTING_CAGEID, 10, true, 100)
+                                        .unwrap();
+                                    newalgorithm
+                                        .translate_virtual_fd(threei::TESTING_CAGEID, fd)
+                                    .unwrap();
+                                }
+                                
+                            }));
+                        }
+                        for handle in thread_handle_vec {
+                            handle.join().unwrap();
+                        }
+//                        algwrapper.refresh();
+                    }
+                })
+            },
+        );
+    }
+
+    algorithm = Arc::into_inner(algwrapper).unwrap();
+    algorithm.refresh();
 
     group.finish();
 }
-
 
 criterion_group!(benches, run_benchmark);
 criterion_main!(benches);
