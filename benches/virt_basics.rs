@@ -1,11 +1,11 @@
 /* Benchmarks for fdtables.  This does a few basic operations related to
  * virtual fd -> real fd translation */
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 
 use fdtables::*;
 
-//use std::time::Duration;
+use std::thread;
 
 pub fn run_benchmark(c: &mut Criterion) {
     // I'm going to do some simple calls using fdtables in this file
@@ -23,9 +23,9 @@ pub fn run_benchmark(c: &mut Criterion) {
     let fd3 = get_unused_virtual_fd(threei::TESTING_CAGEID, 30, true, 10).unwrap();
 
     // I'm going to insert three items, then do 10000 queries, then clean up...
-    group.bench_function("translate_virtual_fd (10000)", |b| {
+    group.bench_function(format!("[single-threaded] translate_virtual_fd (10000):{}",ALGONAME), |b| {
         b.iter(|| {
-            for _ in [0..1000].iter() {
+            for _ in 0..1000 {
                 translate_virtual_fd(threei::TESTING_CAGEID, fd1).unwrap();
                 translate_virtual_fd(threei::TESTING_CAGEID, fd2).unwrap();
                 translate_virtual_fd(threei::TESTING_CAGEID, fd3).unwrap();
@@ -40,44 +40,150 @@ pub fn run_benchmark(c: &mut Criterion) {
         })
     });
 
-    _flush_fdtable();
+    refresh();
 
     // only do 1000 because 1024 is a common lower bound
-    group.bench_function("get_unused_virtual_fd (1000)", |b| {
+    group.bench_function(format!("[single-threaded] get_unused_virtual_fd (1000):{}",ALGONAME), |b| {
         b.iter(|| {
-            for _ in [0..1000].iter() {
+            for _ in 0..1000 {
                 _ = get_unused_virtual_fd(threei::TESTING_CAGEID, 30, true, 10).unwrap();
             }
             // unfortunately, we need to clean up, or else we will
             // get an exception due to the table being full...
-            _flush_fdtable();
+            refresh();
         })
     });
 
     // Check get_optionalinfo...
     let fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 30, true, 10).unwrap();
-    group.bench_function("get_optionalinfo (10000)", |b| {
+    group.bench_function(format!("[single-threaded] get_optionalinfo (10000):{}",ALGONAME), |b| {
         b.iter(|| {
-            for _ in [0..10000].iter() {
+            for _ in 0..10000 {
                 _ = get_optionalinfo(threei::TESTING_CAGEID, fd).unwrap();
             }
         })
     });
 
-    _flush_fdtable();
+    refresh();
 
     // flip the set_optionalinfo data...
     let fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 30, true, 10).unwrap();
-    group.bench_function("set_optionalinfo (10000)", |b| {
+    group.bench_function(format!("[single-threaded] set_optionalinfo (10000):{}",ALGONAME), |b| {
         b.iter(|| {
-            for _ in [0..5000].iter() {
+            for _ in 0..5000 {
                 _ = set_optionalinfo(threei::TESTING_CAGEID, fd, 100).unwrap();
                 _ = set_optionalinfo(threei::TESTING_CAGEID, fd, 200).unwrap();
             }
         })
     });
 
-    _flush_fdtable();
+    refresh();
+
+    // I didn't make the NoLockBasic be threadsafe, so skip those tests...
+    if ALGONAME == "NoLockBasic" {
+        println!("Skipping multithreaded tests for {}", ALGONAME);
+        return;
+    }
+
+    // ---------------- MULTI-THREADED TESTS ------------------  //
+
+    // -- Multithreaded benchmark 1: 100K translate calls --
+
+    let fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, true, 100).unwrap();
+    let fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 20, true, 200).unwrap();
+    let fd3 = get_unused_virtual_fd(threei::TESTING_CAGEID, 30, true, 300).unwrap();
+
+    for threadcount in [1, 2, 4, 8, 16].iter() {
+        group.bench_with_input(
+            BenchmarkId::new(
+                format!(
+                    "{}: [multi-threaded:{}] translate_virtual_fd (100K)",
+                    threadcount, ALGONAME
+                ),
+                threadcount,
+            ),
+            threadcount,
+            |b, threadcount| {
+                b.iter({
+                    || {
+                        let mut thread_handle_vec: Vec<thread::JoinHandle<()>> = Vec::new();
+                        for _numthreads in 0..*threadcount {
+                            // Need to borrow so the lifetime can live outside
+                            // the thread's closure
+                            let thisthreadcount = *threadcount;
+
+                            thread_handle_vec.push(thread::spawn(move || {
+                                // Do 10K / threadcount of 10 requests each.  100K total
+                                for _ in 0..10000 / thisthreadcount {
+                                    translate_virtual_fd(threei::TESTING_CAGEID, fd).unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID, fd).unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID, fd).unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID, fd).unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID, fd2).unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID, fd2).unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID, fd2).unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID, fd3).unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID, fd3).unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID, fd3).unwrap();
+                                }
+                            }));
+                        }
+                        for handle in thread_handle_vec {
+                            handle.join().unwrap();
+                        }
+                    }
+                })
+            },
+        );
+    }
+    refresh();
+
+    // -- Multithreaded benchmark 2: get / translate interleaved --
+
+    // I will always do 100K requests (split amongst some number of threads)
+
+    for threadcount in [1, 2, 4, 8, 16].iter() {
+        group.bench_with_input(
+            BenchmarkId::new(
+                format!(
+                    "{}: [multi-threaded:{}] get_translate_refresh (1K each loop)",
+                    threadcount, ALGONAME
+                ),
+                threadcount,
+            ),
+            threadcount,
+            |b, threadcount| {
+                b.iter({
+                    || {
+                        let mut thread_handle_vec: Vec<thread::JoinHandle<()>> = Vec::new();
+                        for _numthreads in 0..*threadcount {
+                            // Need to borrow so the lifetime can live outside
+                            // the thread's closure
+                            let thisthreadcount = *threadcount;
+
+                            thread_handle_vec.push(thread::spawn(move || {
+                                // Do 1K / threadcount of 10 requests each.  100K total
+                                for _ in 0..1000 / thisthreadcount {
+                                    let fd = get_unused_virtual_fd(
+                                        threei::TESTING_CAGEID,
+                                        10,
+                                        true,
+                                        100,
+                                    )
+                                    .unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID, fd).unwrap();
+                                }
+                            }));
+                        }
+                        for handle in thread_handle_vec {
+                            handle.join().unwrap();
+                        }
+                        refresh();
+                    }
+                })
+            },
+        );
+    }
 
     group.finish();
 }

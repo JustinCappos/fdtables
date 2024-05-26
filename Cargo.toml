@@ -19,7 +19,7 @@ name = "virt_basics"
 path = "benches/virt_basics.rs"
 harness= false
 
-[[bench]]
-name = "primitives"
-path = "benches/primitives.rs"
-harness= false
+#[[bench]]
+#name = "primitives"
+#path = "benches/primitives.rs"
+#harness= false
