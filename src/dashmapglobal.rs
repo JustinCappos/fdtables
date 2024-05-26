@@ -149,11 +149,9 @@ lazy_static! {
   };
 }
 
-/// Function: translate_virtual_fd(cageid, virtualfd) -> Result<realfd,EBADFD>
-///
-/// This is the main lookup function for fdtables.  It converts a virtualfd
-/// (which is used in a cage) into the realfd (which is known to whatever
-/// is below us, possibly the OS kernel).
+/// This is the main lookup function for fdtables.  It converts a virtualfd,
+/// which is used in a cage, into the realfd, which is known to whatever
+/// is below us, possibly the OS kernel.
 ///
 /// Panics:
 ///     if the cageid does not exist
@@ -163,11 +161,12 @@ lazy_static! {
 ///
 /// Example:
 /// ```
-/// use fdtables::*;
-/// const REALFD: u64 = 10;
-/// let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 100).unwrap();
+/// # use fdtables::*;
+/// # let cage_id = threei::TESTING_CAGEID;
+/// # let realfd: u64 = 10;
+/// let my_virt_fd = get_unused_virtual_fd(cage_id, realfd, false, 100).unwrap();
 /// // Check that you get the real fd back here...
-/// assert_eq!(REALFD,translate_virtual_fd(threei::TESTING_CAGEID, my_virt_fd).unwrap());
+/// assert_eq!(realfd,translate_virtual_fd(cage_id, my_virt_fd).unwrap());
 /// ```
 ///     
 pub fn translate_virtual_fd(cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
@@ -188,9 +187,6 @@ pub fn translate_virtual_fd(cageid: u64, virtualfd: u64) -> Result<u64, threei::
     };
 }
 
-/// Function: get_unused_virtual_fd(cageid,realfd,is_cloexec,optionalinfo) -> 
-///             Result<virtualfd, EMFILE>
-///
 /// This is used to get a virtualfd mapping to put an item into the table.
 /// This is the overwhelmingly common way to get a virtualfd and should be 
 /// used essentially everywhere except in cases like dup2(), where you do 
@@ -204,12 +200,13 @@ pub fn translate_virtual_fd(cageid: u64, virtualfd: u64) -> Result<u64, threei::
 ///
 /// Example:
 /// ```
-/// use fdtables::*;
-/// const REALFD: u64 = 10;
+/// # use fdtables::*;
+/// # let cage_id = threei::TESTING_CAGEID;
+/// # let realfd: u64 = 10;
 /// // Should not error...
-/// let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 100).unwrap();
+/// let my_virt_fd = get_unused_virtual_fd(cage_id, realfd, false, 100).unwrap();
 /// // Check that you get the real fd back here...
-/// assert_eq!(REALFD,translate_virtual_fd(threei::TESTING_CAGEID, my_virt_fd).unwrap());
+/// assert_eq!(realfd,translate_virtual_fd(cage_id, my_virt_fd).unwrap());
 /// ```
 // This is fairly slow if I just iterate sequentially through numbers.
 // However there are not that many to choose from.  I could pop from a list
@@ -254,29 +251,28 @@ pub fn get_unused_virtual_fd(
     Err(threei::Errno::EMFILE as u64)
 }
 
-/// Function: get_specific_virtual_fd(cageid,virtualfd,realfd,is_cloexec,optionalinfo) 
-///             -> Result<(), (ELIND|EBADF)>
-///
 /// This is used to get a specific virtualfd mapping for something like 
-/// dup2.  Do not use this if you do not care which virtualfd you get.
+/// dup2.  Use this only if you care which virtualfd you get.
 ///
 /// Panics:
 ///     if the cageid does not exist
 ///
 /// Errors:
-///     returns ELIND if you're picking an already used virtualfd.  (If you
-///     want to mimic dup2's behavior, you need to close it first.)
+///     returns ELIND if you're picking an already used virtualfd.  If you
+///     want to mimic dup2's behavior, you need to close it first, which the
+///     caller should handle.
 ///     returns EBADF if it's not in the range of valid fds.
 ///
 /// Example:
 /// ```
-/// use fdtables::*;
-/// const REALFD: u64 = 10;
-/// const VIRTFD: u64 = 1000;
+/// # use fdtables::*;
+/// # let cage_id = threei::TESTING_CAGEID;
+/// # let realfd: u64 = 10;
+/// # let virtfd: u64 = 1000;
 /// // Should not error...
-/// assert!(get_specific_virtual_fd(threei::TESTING_CAGEID, VIRTFD, REALFD, false, 100).is_ok());
+/// assert!(get_specific_virtual_fd(cage_id, virtfd, realfd, false, 100).is_ok());
 /// // Check that you get the real fd back here...
-/// assert_eq!(REALFD,translate_virtual_fd(threei::TESTING_CAGEID, VIRTFD).unwrap());
+/// assert_eq!(realfd,translate_virtual_fd(cage_id, virtfd).unwrap());
 /// ```
 // This is used for things like dup2, which need a specific fd...
 // NOTE: I will assume that the requested_virtualfd isn't used.  If it is, I
@@ -326,6 +322,26 @@ pub fn get_specific_virtual_fd(
     }
 }
 
+/// Helper function for setting the close on exec (CLOEXEC) flag for a 
+/// virtualfd.  This should be tracked because the empty_fds_for_exec(cageid)
+/// call needs to know which fds should be closed and which should be retained.
+///
+/// Panics:
+///     Unknown cageid
+///
+/// Errors:
+///     EBADFD if the virtual file descriptor is incorrect
+///
+/// Example:
+/// ```
+/// # use fdtables::*;
+/// # let cage_id = threei::TESTING_CAGEID;
+/// # let realfd: u64 = 10;
+/// // Acquire a virtual fd...
+/// let my_virt_fd = get_unused_virtual_fd(cage_id, realfd, false, 100).unwrap();
+/// // Swap this so it'll be closed when empty_fds_for_exec is called...
+/// set_cloexec(cage_id, my_virt_fd, true).unwrap();
+/// ```
 // We're just setting a flag here, so this should be pretty straightforward.
 pub fn set_cloexec(cageid: u64, virtualfd: u64, is_cloexec: bool) -> Result<(), threei::RetVal> {
     //let mut fdtable = GLOBALFDTABLE;
@@ -344,6 +360,23 @@ pub fn set_cloexec(cageid: u64, virtualfd: u64, is_cloexec: bool) -> Result<(), 
     };
 }
 
+/// Used to track optional information needed by the libary importer.  For 
+/// example, if you want to assign virtual pipe buffers, this could be the
+/// position in an array where this buffer lives.  
+///
+/// Panics:
+///     Invalid cageid
+///
+/// Errors:
+///     BADFD if the virtualfd doesn't exist
+///
+/// Example:
+/// ```
+/// # use fdtables::*;
+/// # let cage_id = threei::TESTING_CAGEID;
+/// let my_virt_fd = get_unused_virtual_fd(cage_id, 10, false, 12345).unwrap();
+/// assert_eq!(get_optionalinfo(cage_id, my_virt_fd).unwrap(),12345);
+/// ```
 // Super easy, just return the optionalinfo field...
 pub fn get_optionalinfo(cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
     //let fdtable = GLOBALFDTABLE;
@@ -442,7 +475,9 @@ pub fn return_fdtable_copy(cageid: u64) -> HashMap<u64, FDTableEntry> {
     fdtable.get(&cageid).unwrap().clone()
 }
 
+#[doc(hidden)]
 // Helper to initialize / empty out state so we can test with a clean system...
+// This is only used in tests, thus is hidden...
 pub fn refresh() {
     //let mut fdtable = GLOBALFDTABLE;
     fdtable.clear();
