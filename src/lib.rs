@@ -134,6 +134,7 @@ pub use crate::dashmapglobal::*;
 // This is used everywhere...  Should I re-export these symbols?
 pub mod threei;
 //pub use threei::*;
+/// Error values (matching errno in Linux) for the various call Results
 pub use threei::Errno;
 
 /***************************** TESTS FOLLOW ******************************/
