@@ -138,7 +138,7 @@ lazy_static! {
   #[derive(Debug)]
   // Usually I would care more about this, but I'm keeping this close to
   // the vanilla implementation...
-  static ref fdtable: DashMap<u64, HashMap<u64,FDTableEntry>> = {
+  static ref FDTABLE: DashMap<u64, HashMap<u64,FDTableEntry>> = {
     let m = DashMap::new();
     // Insert a cage so that I have something to fork / test later, if need
     // be. Otherwise, I'm not sure how I get this started. I think this
@@ -149,67 +149,22 @@ lazy_static! {
   };
 }
 
-/// This is the main virtual -> realfd lookup function for fdtables.  
-///
-/// Converts a virtualfd, which is used in a cage, into the realfd, which 
-/// is known to whatever is below us, possibly the OS kernel.
-///
-/// Panics:
-///     if the cageid does not exist
-///
-/// Errors:
-///     if the virtualfd does not exist
-///
-/// Example:
-/// ```
-/// # use fdtables::*;
-/// # let cage_id = threei::TESTING_CAGEID;
-/// # let realfd: u64 = 10;
-/// let my_virt_fd = get_unused_virtual_fd(cage_id, realfd, false, 100).unwrap();
-/// // Check that you get the real fd back here...
-/// assert_eq!(realfd,translate_virtual_fd(cage_id, my_virt_fd).unwrap());
-/// ```
-///     
+#[doc = include_str!("../docs/translate_virtual_fd.md")]
 pub fn translate_virtual_fd(cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
-    // Get the lock on the fdtable...  I'm not handling "poisoned locks" now
-    // where a thread holding the lock died...
-//    let fdtable = GLOBALFDTABLE;
 
     // They should not be able to pass a new cage I don't know.  I should
     // always have a table for each cage because each new cage is added at fork
     // time
-    if !fdtable.contains_key(&cageid) {
+    if !FDTABLE.contains_key(&cageid) {
         panic!("Unknown cageid in fdtable access");
     }
 
-    return match fdtable.get(&cageid).unwrap().get(&virtualfd) {
+    return match FDTABLE.get(&cageid).unwrap().get(&virtualfd) {
         Some(tableentry) => Ok(tableentry.realfd),
         None => Err(threei::Errno::EBADFD as u64),
     };
 }
 
-/// Get a virtualfd mapping to put an item into the fdtable.
-///
-/// This is the overwhelmingly common way to get a virtualfd and should be 
-/// used essentially everywhere except in cases like dup2(), where you do 
-/// actually care what fd you are assigned.
-///
-/// Panics:
-///     if the cageid does not exist
-///
-/// Errors:
-///     if the cage has used EMFILE virtual descriptors already, return EMFILE
-///
-/// Example:
-/// ```
-/// # use fdtables::*;
-/// # let cage_id = threei::TESTING_CAGEID;
-/// # let realfd: u64 = 10;
-/// // Should not error...
-/// let my_virt_fd = get_unused_virtual_fd(cage_id, realfd, false, 100).unwrap();
-/// // Check that you get the real fd back here...
-/// assert_eq!(realfd,translate_virtual_fd(cage_id, my_virt_fd).unwrap());
-/// ```
 // This is fairly slow if I just iterate sequentially through numbers.
 // However there are not that many to choose from.  I could pop from a list
 // or a set as well...  Likely the best solution is to keep a count of the
@@ -217,15 +172,15 @@ pub fn translate_virtual_fd(cageid: u64, virtualfd: u64) -> Result<u64, threei::
 // super fast for a normal cage and will be correct in the weird case.
 // Right now, I'll just implement the slow path and will speed this up
 // later, if needed.
+#[doc = include_str!("../docs/get_unused_virtual_fd.md")]
 pub fn get_unused_virtual_fd(
     cageid: u64,
     realfd: u64,
     should_cloexec: bool,
     optionalinfo: u64,
 ) -> Result<u64, threei::RetVal> {
-    //let mut fdtable = GLOBALFDTABLE;
 
-    if !fdtable.contains_key(&cageid) {
+    if !FDTABLE.contains_key(&cageid) {
         panic!("Unknown cageid in fdtable access");
     }
     // Set up the entry so it has the right info...
@@ -239,9 +194,9 @@ pub fn get_unused_virtual_fd(
 
     // Check the fds in order.
     for fdcandidate in 0..FD_PER_PROCESS_MAX {
-        if !fdtable.get(&cageid).unwrap().contains_key(&fdcandidate) {
+        if !FDTABLE.get(&cageid).unwrap().contains_key(&fdcandidate) {
             // I just checked.  Should not be there...
-            fdtable
+            FDTABLE
                 .get_mut(&cageid)
                 .unwrap()
                 .insert(fdcandidate, myentry);
@@ -253,34 +208,10 @@ pub fn get_unused_virtual_fd(
     Err(threei::Errno::EMFILE as u64)
 }
 
-/// This is used to get a specific virtualfd mapping.
-///
-/// Useful for implementing something like dup2.  Use this only if you care 
-/// which virtualfd you get.  Otherwise use get_unused_virtual_fd().
-///
-/// Panics:
-///     if the cageid does not exist
-///
-/// Errors:
-///     returns ELIND if you're picking an already used virtualfd.  If you
-///     want to mimic dup2's behavior, you need to close it first, which the
-///     caller should handle.
-///     returns EBADF if it's not in the range of valid fds.
-///
-/// Example:
-/// ```
-/// # use fdtables::*;
-/// # let cage_id = threei::TESTING_CAGEID;
-/// # let realfd: u64 = 10;
-/// # let virtfd: u64 = 1000;
-/// // Should not error...
-/// assert!(get_specific_virtual_fd(cage_id, virtfd, realfd, false, 100).is_ok());
-/// // Check that you get the real fd back here...
-/// assert_eq!(realfd,translate_virtual_fd(cage_id, virtfd).unwrap());
-/// ```
 // This is used for things like dup2, which need a specific fd...
 // NOTE: I will assume that the requested_virtualfd isn't used.  If it is, I
 // will return ELIND
+#[doc = include_str!("../docs/get_specific_virtual_fd.md")]
 pub fn get_specific_virtual_fd(
     cageid: u64,
     requested_virtualfd: u64,
@@ -288,9 +219,8 @@ pub fn get_specific_virtual_fd(
     should_cloexec: bool,
     optionalinfo: u64,
 ) -> Result<(), threei::RetVal> {
-    //let mut fdtable = GLOBALFDTABLE;
 
-    if !fdtable.contains_key(&cageid) {
+    if !FDTABLE.contains_key(&cageid) {
         panic!("Unknown cageid in fdtable access");
     }
 
@@ -311,14 +241,14 @@ pub fn get_specific_virtual_fd(
         optionalinfo,
     };
 
-    if fdtable
+    if FDTABLE
         .get(&cageid)
         .unwrap()
         .contains_key(&requested_virtualfd)
     {
         Err(threei::Errno::ELIND as u64)
     } else {
-        fdtable
+        FDTABLE
             .get_mut(&cageid)
             .unwrap()
             .insert(requested_virtualfd, myentry);
@@ -326,37 +256,16 @@ pub fn get_specific_virtual_fd(
     }
 }
 
-/// Helper function for setting the close on exec (CLOEXEC) flag.
-///
-/// The reason this information is needed is because the empty_fds_for_exec()
-/// call needs to know which fds should be closed and which should be retained.
-///
-/// Panics:
-///     Unknown cageid
-///
-/// Errors:
-///     EBADFD if the virtual file descriptor is incorrect
-///
-/// Example:
-/// ```
-/// # use fdtables::*;
-/// # let cage_id = threei::TESTING_CAGEID;
-/// # let realfd: u64 = 10;
-/// // Acquire a virtual fd...
-/// let my_virt_fd = get_unused_virtual_fd(cage_id, realfd, false, 100).unwrap();
-/// // Swap this so it'll be closed when empty_fds_for_exec is called...
-/// set_cloexec(cage_id, my_virt_fd, true).unwrap();
-/// ```
 // We're just setting a flag here, so this should be pretty straightforward.
+#[doc = include_str!("../docs/set_cloexec.md")]
 pub fn set_cloexec(cageid: u64, virtualfd: u64, is_cloexec: bool) -> Result<(), threei::RetVal> {
-    //let mut fdtable = GLOBALFDTABLE;
 
-    if !fdtable.contains_key(&cageid) {
+    if !FDTABLE.contains_key(&cageid) {
         panic!("Unknown cageid in fdtable access");
     }
 
     // Set the is_cloexec flag or return EBADFD, if that's missing...
-    return match fdtable.get_mut(&cageid).unwrap().get_mut(&virtualfd) {
+    return match FDTABLE.get_mut(&cageid).unwrap().get_mut(&virtualfd) {
         Some(tableentry) => {
             tableentry.should_cloexec = is_cloexec;
             Ok(())
@@ -365,74 +274,33 @@ pub fn set_cloexec(cageid: u64, virtualfd: u64, is_cloexec: bool) -> Result<(), 
     };
 }
 
-/// Used to get optional information needed by the library importer.  
-///
-/// This is useful if you want to assign some sort of index to virtualfds,
-/// often if there is no realfd backing them.  For example, if you are 
-/// implementing in-memory pipe buffers, this could be the position in an 
-/// array where a ring buffer lives.   See also set_optionalinfo()
-///
-/// Panics:
-///     Invalid cageid
-///
-/// Errors:
-///     BADFD if the virtualfd doesn't exist
-///
-/// Example:
-/// ```
-/// # use fdtables::*;
-/// # let cage_id = threei::TESTING_CAGEID;
-/// let my_virt_fd = get_unused_virtual_fd(cage_id, 10, false, 12345).unwrap();
-/// assert_eq!(get_optionalinfo(cage_id, my_virt_fd).unwrap(),12345);
-/// ```
 // Super easy, just return the optionalinfo field...
+#[doc = include_str!("../docs/get_optionalinfo.md")]
 pub fn get_optionalinfo(cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
-    //let fdtable = GLOBALFDTABLE;
-    if !fdtable.contains_key(&cageid) {
+    if !FDTABLE.contains_key(&cageid) {
         panic!("Unknown cageid in fdtable access");
     }
 
-    return match fdtable.get(&cageid).unwrap().get(&virtualfd) {
+    return match FDTABLE.get(&cageid).unwrap().get(&virtualfd) {
         Some(tableentry) => Ok(tableentry.optionalinfo),
         None => Err(threei::Errno::EBADFD as u64),
     };
 }
 
-/// Set optional information needed by the library importer.  
-///
-/// This is useful if you want to assign some sort of index to virtualfds,
-/// often if there is no realfd backing them.  For example, if you are 
-/// implementing in-memory pipe buffers, this could be the position in an 
-/// array where a ring buffer lives.   See also get_optionalinfo()
-///
-/// Panics:
-///     Invalid cageid
-///
-/// Errors:
-///     BADFD if the virtualfd doesn't exist
-///
-/// Example:
-/// ```
-/// # use fdtables::*;
-/// # let cage_id = threei::TESTING_CAGEID;
-/// let my_virt_fd = get_unused_virtual_fd(cage_id, 10, false, 10).unwrap();
-/// set_optionalinfo(cage_id, my_virt_fd,12345).unwrap();
-/// assert_eq!(get_optionalinfo(cage_id, my_virt_fd).unwrap(),12345);
-/// ```
 // We're setting an opaque value here. This should be pretty straightforward.
+#[doc = include_str!("../docs/set_optionalinfo.md")]
 pub fn set_optionalinfo(
     cageid: u64,
     virtualfd: u64,
     optionalinfo: u64,
 ) -> Result<(), threei::RetVal> {
-    //let mut fdtable = GLOBALFDTABLE;
 
-    if !fdtable.contains_key(&cageid) {
+    if !FDTABLE.contains_key(&cageid) {
         panic!("Unknown cageid in fdtable access");
     }
 
     // Set the is_cloexec flag or return EBADFD, if that's missing...
-    return match fdtable.get_mut(&cageid).unwrap().get_mut(&virtualfd) {
+    return match FDTABLE.get_mut(&cageid).unwrap().get_mut(&virtualfd) {
         Some(tableentry) => {
             tableentry.optionalinfo = optionalinfo;
             Ok(())
@@ -441,173 +309,73 @@ pub fn set_optionalinfo(
     };
 }
 
-/// Duplicate a cage's fdtable -- useful for implementing fork()
-///
-/// This function is effectively just making a copy of a specific cage's
-/// fdtable, for use in fork().  Nothing complicated here.
-///
-/// Panics:
-///     Invalid cageid for srccageid
-///     Already used cageid for newcageid
-///
-/// Errors:
-///     This will return ENFILE if too many fds are used, if the implementation
-///     supports it...
-///
-/// Example:
-/// ```
-/// # use fdtables::*;
-/// # let src_cage_id = threei::TESTING_CAGEID;
-/// # let new_cage_id = threei::TESTING_CAGEID1;
-/// let my_virt_fd = get_unused_virtual_fd(src_cage_id, 10, false, 10).unwrap();
-/// copy_fdtable_for_cage(src_cage_id,new_cage_id).unwrap();
-/// // Check that this entry exists under the new_cage_id...
-/// assert_eq!(get_optionalinfo(new_cage_id, my_virt_fd).unwrap(),10);
-/// ```
 // Helper function used for fork...  Copies an fdtable for another process
+#[doc = include_str!("../docs/copy_fdtable_for_cage.md")]
 pub fn copy_fdtable_for_cage(srccageid: u64, newcageid: u64) -> Result<(), threei::Errno> {
-    //let mut fdtable = GLOBALFDTABLE;
 
-    if !fdtable.contains_key(&srccageid) {
+    if !FDTABLE.contains_key(&srccageid) {
         panic!("Unknown srccageid in fdtable access");
     }
-    if fdtable.contains_key(&newcageid) {
+    if FDTABLE.contains_key(&newcageid) {
         panic!("Known newcageid in fdtable access");
     }
 
     // Insert a copy and ensure it didn't exist...
-    let hmcopy = fdtable.get(&srccageid).unwrap().clone();
-    assert!(fdtable.insert(newcageid, hmcopy).is_none());
+    let hmcopy = FDTABLE.get(&srccageid).unwrap().clone();
+    assert!(FDTABLE.insert(newcageid, hmcopy).is_none());
     Ok(())
     // I'm not going to bother to check the number of fds used overall yet...
     //    Err(threei::Errno::EMFILE as u64),
 }
 
-/// discards a cage -- likely for handling exit()
-///
-/// This is mostly used in handling exit, etc.  Returns the HashMap for the 
-/// cage, so that the caller can close realfds, etc. as is needed.
-///
-/// Panics:
-///     Invalid cageid
-///
-/// Errors:
-///     None
-///
-/// Example:
-/// ```
-/// # use fdtables::*;
-/// # let src_cage_id = threei::TESTING_CAGEID;
-/// # let cage_id = threei::TESTING_CAGEID2;
-/// # copy_fdtable_for_cage(src_cage_id,cage_id).unwrap();
-/// let my_virt_fd = get_unused_virtual_fd(cage_id, 10, false, 10).unwrap();
-/// let my_cages_fdtable = remove_cage_from_fdtable(cage_id);
-/// assert!(my_cages_fdtable.get(&my_virt_fd).is_some());
-/// //   If we do the following line, it would panic, since the cage_id has 
-/// //   been removed from the table...
-/// // get_unused_virtual_fd(cage_id, 10, false, 10)
-/// ```
 // This is mostly used in handling exit, etc.  Returns the HashMap
 // for the cage.
+#[doc = include_str!("../docs/remove_cage_from_fdtable.md")]
 pub fn remove_cage_from_fdtable(cageid: u64) -> HashMap<u64, FDTableEntry> {
-    //let mut fdtable = GLOBALFDTABLE;
 
-    if !fdtable.contains_key(&cageid) {
+    if !FDTABLE.contains_key(&cageid) {
         panic!("Unknown cageid in fdtable access");
     }
 
-    fdtable.remove(&cageid).unwrap().1
+    FDTABLE.remove(&cageid).unwrap().1
 }
 
-/// removes and returns a hashmap of all entries with should_cloexec set
-///
-/// This goes through every entry in a cage's fdtable and removes all entries
-/// that have should_cloexec set to true.  These entries are all added to a
-/// new hashmap which is returend.  This is useful for handling exec, as the
-/// caller can now decide how to handle each fd.
-///
-/// Panics:
-///     Invalid cageid
-///
-/// Errors:
-///     None
-///
-/// Example:
-/// ```
-/// # use fdtables::*;
-/// # let src_cage_id = threei::TESTING_CAGEID;
-/// # let cage_id = threei::TESTING_CAGEID3;
-/// # copy_fdtable_for_cage(src_cage_id,cage_id).unwrap();
-/// let my_virt_fd = get_unused_virtual_fd(cage_id, 20, true, 17).unwrap();
-/// let my_virt_fd2 = get_unused_virtual_fd(cage_id, 33, false, 16).unwrap();
-/// let cloexec_fdtable = empty_fds_for_exec(cage_id);
-/// // The first fd should be closed and returned...
-/// assert!(cloexec_fdtable.get(&my_virt_fd).is_some());
-/// // So isn't in the original table anymore...
-/// assert!(translate_virtual_fd(cage_id, my_virt_fd).is_err());
-/// // The second fd isn't returned...
-/// assert!(cloexec_fdtable.get(&my_virt_fd2).is_none());
-/// // Because it is still in the original table...
-/// assert!(translate_virtual_fd(cage_id, my_virt_fd2).is_ok());
-/// ```
 // This removes all fds with the should_cloexec flag set.  They are returned
 // in a new hashmap...
+#[doc = include_str!("../docs/empty_fds_for_exec.md")]
 pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
-    //let mut fdtable = GLOBALFDTABLE;
 
-    if !fdtable.contains_key(&cageid) {
+    if !FDTABLE.contains_key(&cageid) {
         panic!("Unknown cageid in fdtable access");
     }
 
     // Create this hashmap through an lambda that checks should_cloexec...
     // See: https://doc.rust-lang.org/std/collections/struct.HashMap.html#method.extract_if
 
-    fdtable
+    FDTABLE
         .get_mut(&cageid)
         .unwrap()
         .extract_if(|_k, v| v.should_cloexec)
         .collect()
 }
 
-/// gets a copy of a cage's fdtable hashmap
-///
-/// Utility function that some callers may want.  I'm not sure why this is 
-/// needed exactly
-///
-/// Panics:
-///     Invalid cageid
-///
-/// Errors:
-///     None
-///
-/// Example:
-/// ```
-/// # use fdtables::*;
-/// # let cage_id = threei::TESTING_CAGEID;
-/// let my_virt_fd = get_unused_virtual_fd(cage_id, 10, false, 10).unwrap();
-/// let my_cages_fdtable = return_fdtable_copy(cage_id);
-/// assert!(my_cages_fdtable.get(&my_virt_fd).is_some());
-/// // I can modify the cage table after this and the changes won't show up
-/// // in my local HashMap since this is a copy...
-/// ```
 // Returns the HashMap returns a copy of the fdtable for a cage.  Useful 
 // helper function for a caller that needs to examine the table.  Likely could
 // be more efficient by letting the caller borrow this...
+#[doc = include_str!("../docs/return_fdtable_copy.md")]
 pub fn return_fdtable_copy(cageid: u64) -> HashMap<u64, FDTableEntry> {
-    //let fdtable = GLOBALFDTABLE;
 
-    if !fdtable.contains_key(&cageid) {
+    if !FDTABLE.contains_key(&cageid) {
         panic!("Unknown cageid in fdtable access");
     }
 
-    fdtable.get(&cageid).unwrap().clone()
+    FDTABLE.get(&cageid).unwrap().clone()
 }
 
 #[doc(hidden)]
 // Helper to initialize / empty out state so we can test with a clean system...
 // This is only used in tests, thus is hidden...
 pub fn refresh() {
-    //let mut fdtable = GLOBALFDTABLE;
-    fdtable.clear();
-    fdtable.insert(threei::TESTING_CAGEID, HashMap::new());
+    FDTABLE.clear();
+    FDTABLE.insert(threei::TESTING_CAGEID, HashMap::new());
 }

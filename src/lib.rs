@@ -12,7 +12,7 @@
 //! the primary function of letting set up virtual (child cage) to real 
 //! (the underlying system) fd mappings.
 //!
-//! Note that the code reexports an implementation from a specific submodule.
+//! Note that the code re-exports an implementation from a specific submodule.
 //! This was done to make the algorithmic options easier to benchmark and
 //! compare.  You, the caller, should only use the base fdtables::XXX API and
 //! not fdtables::algorithmname::XXX, as the latter will not be stable over 
@@ -31,10 +31,15 @@
 // share a struct where the underlying things which were mutable (even though
 // the underlying items were locked appropriately in a generic way).
 //
+// This makes things like the doc strings very odd as well.  I am extracting
+// these out to separate files instead of having them in-line, since the
+// different implementations will have the same doc strings.
+//
 // How this works is that I will import a single implementation as a mod here
 // and this is what the benchmarker will use.  If you want to change the
 // implementation you benchmark / test / use, you need to change the lines
 // below...
+//
 
 /*  ------------ SET OF IMPLEMENTATIONS OF FDTABLES ------------ */
 
@@ -52,15 +57,16 @@
 //      This is the default thing I implemented.
 //      Done: GlobalVanilla
 
-//mod vanillaglobal;
-//pub use crate::vanillaglobal::*;
+mod vanillaglobal;
+pub use crate::vanillaglobal::*;
 
 //  DashMap<u64,HashMap<u64,FDTableEntry>>
 //      Just a basic solution with a dashmap instead of a mutex + hashmap
 //      Done: GlobalDashMap
 //
-mod dashmapglobal;
-pub use crate::dashmapglobal::*;
+//mod dashmapglobal;
+//pub use crate::dashmapglobal::*;
+
 //
 //  DashMap<u64,[FDTableEntry;1024]>  Space is ~24KB per cage?!?
 //      Static DashMap.  Let's see if having the FDTableEntries be a static

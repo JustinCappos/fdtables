@@ -143,6 +143,7 @@ lazy_static! {
   };
 }
 
+#[doc = include_str!("../docs/translate_virtual_fd.md")]
 pub fn translate_virtual_fd(cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
     // Get the lock on the fdtable...  I'm not handling "poisoned locks" now
     // where a thread holding the lock died...
@@ -168,6 +169,7 @@ pub fn translate_virtual_fd(cageid: u64, virtualfd: u64) -> Result<u64, threei::
 // super fast for a normal cage and will be correct in the weird case.
 // Right now, I'll just implement the slow path and will speed this up
 // later, if needed.
+#[doc = include_str!("../docs/get_unused_virtual_fd.md")]
 pub fn get_unused_virtual_fd(
     cageid: u64,
     realfd: u64,
@@ -208,6 +210,7 @@ pub fn get_unused_virtual_fd(
 // NOTE: I will assume that the requested_virtualfd isn't used.  If it is, I
 // will return ELIND
 // virtual and realfds are different
+#[doc = include_str!("../docs/get_specific_virtual_fd.md")]
 pub fn get_specific_virtual_fd(
     cageid: u64,
     requested_virtualfd: u64,
@@ -254,6 +257,7 @@ pub fn get_specific_virtual_fd(
 }
 
 // We're just setting a flag here, so this should be pretty straightforward.
+#[doc = include_str!("../docs/set_cloexec.md")]
 pub fn set_cloexec(cageid: u64, virtualfd: u64, is_cloexec: bool) -> Result<(), threei::RetVal> {
     let mut fdtable = GLOBALFDTABLE.lock().unwrap();
 
@@ -272,6 +276,7 @@ pub fn set_cloexec(cageid: u64, virtualfd: u64, is_cloexec: bool) -> Result<(), 
 }
 
 // Super easy, just return the optionalinfo field...
+#[doc = include_str!("../docs/get_optionalinfo.md")]
 pub fn get_optionalinfo(cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
     let fdtable = GLOBALFDTABLE.lock().unwrap();
     if !fdtable.contains_key(&cageid) {
@@ -285,6 +290,7 @@ pub fn get_optionalinfo(cageid: u64, virtualfd: u64) -> Result<u64, threei::RetV
 }
 
 // We're setting an opaque value here. This should be pretty straightforward.
+#[doc = include_str!("../docs/set_optionalinfo.md")]
 pub fn set_optionalinfo(
     cageid: u64,
     virtualfd: u64,
@@ -307,6 +313,7 @@ pub fn set_optionalinfo(
 }
 
 // Helper function used for fork...  Copies an fdtable for another process
+#[doc = include_str!("../docs/copy_fdtable_for_cage.md")]
 pub fn copy_fdtable_for_cage(srccageid: u64, newcageid: u64) -> Result<(), threei::Errno> {
     let mut fdtable = GLOBALFDTABLE.lock().unwrap();
 
@@ -327,6 +334,7 @@ pub fn copy_fdtable_for_cage(srccageid: u64, newcageid: u64) -> Result<(), three
 
 // This is mostly used in handling exit, etc.  Returns the HashMap
 // for the cage.
+#[doc = include_str!("../docs/remove_cage_from_fdtable.md")]
 pub fn remove_cage_from_fdtable(cageid: u64) -> HashMap<u64, FDTableEntry> {
     let mut fdtable = GLOBALFDTABLE.lock().unwrap();
 
@@ -339,6 +347,7 @@ pub fn remove_cage_from_fdtable(cageid: u64) -> HashMap<u64, FDTableEntry> {
 
 // This removes all fds with the should_cloexec flag set.  They are returned
 // in a new hashmap...
+#[doc = include_str!("../docs/empty_fds_for_exec.md")]
 pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
     let mut fdtable = GLOBALFDTABLE.lock().unwrap();
 
@@ -359,6 +368,7 @@ pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
 // returns a copy of the fdtable for a cage.  Useful helper function for a
 // caller that needs to examine the table.  Likely could be more efficient by
 // letting the caller borrow this...
+#[doc = include_str!("../docs/return_fdtable_copy.md")]
 pub fn return_fdtable_copy(cageid: u64) -> HashMap<u64, FDTableEntry> {
     let fdtable = GLOBALFDTABLE.lock().unwrap();
 
@@ -370,6 +380,8 @@ pub fn return_fdtable_copy(cageid: u64) -> HashMap<u64, FDTableEntry> {
 }
 
 // Helper to initialize / empty out state so we can test with a clean system...
+// only used when testing...
+#[doc(hidden)]
 pub fn refresh() {
     let mut fdtable = GLOBALFDTABLE.lock().unwrap();
     fdtable.clear();
