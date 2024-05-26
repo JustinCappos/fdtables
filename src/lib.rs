@@ -57,15 +57,16 @@
 //      This is the default thing I implemented.
 //      Done: GlobalVanilla
 
-mod vanillaglobal;
-pub use crate::vanillaglobal::*;
+//mod vanillaglobal;
+//pub use crate::vanillaglobal::*;
 
 //  DashMap<u64,HashMap<u64,FDTableEntry>>
 //      Just a basic solution with a dashmap instead of a mutex + hashmap
 //      Done: GlobalDashMap
 //
-//mod dashmapglobal;
-//pub use crate::dashmapglobal::*;
+
+mod dashmapglobal;
+pub use crate::dashmapglobal::*;
 
 //
 //  DashMap<u64,[FDTableEntry;1024]>  Space is ~24KB per cage?!?
@@ -94,7 +95,23 @@ pub use crate::vanillaglobal::*;
 //      threads access the same fd without a race, etc.
 //
 
-// Each implementation must define the following:
+//
+// The purpose is to allow a cage to have a set of virtual fds which is 
+// translated into real fds.
+//
+// For example, suppose a cage with cageid A, wants to open a file.  That open
+// operation needs to return a file descriptor to the cage.  Rather than have
+// each cage have the actual underlying numeric fd[*], each cage has its own
+// virtual fd numbers.  So cageid A's fd 6 will potentially be different from
+// cageid B's fd 6.  When a call from cageid A or B is made, this will need to
+// be translated from that virtual fd into the read fd[**].
+//
+// One other complexity deals with the CLOEXEC flag.  If this is set on a file
+// descriptor, then when exec is called, it must be closed.  This library
+// provides a few functions to simplify this process.
+//
+// To make this work, this library provides the following funtionality (these
+// must all be implemented by any party wishing to add functionality):
 //
 //      pub const ALGONAME: &str = XXX;
 //          Where XXX is a string for the name of the algorithm.  Printed
@@ -136,10 +153,43 @@ pub use crate::vanillaglobal::*;
 //          for a caller that needs to examine the table.  Likely could be
 //          more efficient by letting the caller borrow this...
 //
+//
+// In situations where this will be used by a grate, a few other calls are
+// particularly useful:
+//
+//      threeii::reserve_fd(cageid, Option<fd>) -> Result<fd, EMFILE / ENFILE>
+//          Used to have the grate, etc. beneath you reserve (or provide) a fd.
+//          This is useful for situatiosn where you want to have most fds
+//          handled elsewhere, but need to be able to acquire a few for your
+//          purposes (like implementing in-memory pipes, etc.)
+//
+//
+//
+// [*] This isn't possible because fork causes the same fd in the parent and
+// child to have separate file pointers (e.g., read / write to separate
+// locations in the file).
+//
+// [**] This is only the 'real' fd from the standpoint of the user of this
+// library.  If another part of the system below it, such as another grate or
+// the microvisor, is using this library, it will get translated again.
+//
 
-// This is used everywhere...  Should I re-export these symbols?
+//
+// This library is likely the place in the system where we should consider
+// putting in place limits on file descriptors.  Linux does this through two
+// error codes, one for a per-process limit and the other for an overall system
+// limit.  My thinking currently is that both will be configurable values in
+// the library.
+//
+//       EMFILE The per-process limit on the number of open file
+//              descriptors has been reached.
+//
+//       ENFILE The system-wide limit on the total number of open files
+//              has been reached. (mostly unimplemented)
+//
+
+// This is used everywhere...  Should I re-export more of these symbols?
 pub mod threei;
-//pub use threei::*;
 /// Error values (matching errno in Linux) for the various call Results
 pub use threei::Errno;
 
