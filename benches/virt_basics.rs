@@ -23,7 +23,7 @@ pub fn run_benchmark(c: &mut Criterion) {
     let fd3 = get_unused_virtual_fd(threei::TESTING_CAGEID, 30, true, 10).unwrap();
 
     // I'm going to insert three items, then do 10000 queries, then clean up...
-    group.bench_function(format!("[single-threaded] translate_virtual_fd (10000):{}",ALGONAME), |b| {
+    group.bench_function(format!("{}/st: trans (10K)",ALGONAME), |b| {
         b.iter(|| {
             for _ in 0..1000 {
                 translate_virtual_fd(threei::TESTING_CAGEID, fd1).unwrap();
@@ -43,7 +43,7 @@ pub fn run_benchmark(c: &mut Criterion) {
     refresh();
 
     // only do 1000 because 1024 is a common lower bound
-    group.bench_function(format!("[single-threaded] get_unused_virtual_fd (1000):{}",ALGONAME), |b| {
+    group.bench_function(format!("{}/st: getvirt (1K)",ALGONAME), |b| {
         b.iter(|| {
             for _ in 0..1000 {
                 _ = get_unused_virtual_fd(threei::TESTING_CAGEID, 30, true, 10).unwrap();
@@ -56,7 +56,7 @@ pub fn run_benchmark(c: &mut Criterion) {
 
     // Check get_optionalinfo...
     let fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 30, true, 10).unwrap();
-    group.bench_function(format!("[single-threaded] get_optionalinfo (10000):{}",ALGONAME), |b| {
+    group.bench_function(format!("{}/st: get_opt (10K)",ALGONAME), |b| {
         b.iter(|| {
             for _ in 0..10000 {
                 _ = get_optionalinfo(threei::TESTING_CAGEID, fd).unwrap();
@@ -68,7 +68,7 @@ pub fn run_benchmark(c: &mut Criterion) {
 
     // flip the set_optionalinfo data...
     let fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 30, true, 10).unwrap();
-    group.bench_function(format!("[single-threaded] set_optionalinfo (10000):{}",ALGONAME), |b| {
+    group.bench_function(format!("{}/st: set_opt (10K)",ALGONAME), |b| {
         b.iter(|| {
             for _ in 0..5000 {
                 _ = set_optionalinfo(threei::TESTING_CAGEID, fd, 100).unwrap();
@@ -78,12 +78,6 @@ pub fn run_benchmark(c: &mut Criterion) {
     });
 
     refresh();
-
-    // I didn't make the NoLockBasic be threadsafe, so skip those tests...
-    if ALGONAME == "NoLockBasic" {
-        println!("Skipping multithreaded tests for {}", ALGONAME);
-        return;
-    }
 
     // ---------------- MULTI-THREADED TESTS ------------------  //
 
@@ -97,8 +91,8 @@ pub fn run_benchmark(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new(
                 format!(
-                    "{}: [multi-threaded:{}] translate_virtual_fd (100K)",
-                    threadcount, ALGONAME
+                    "{}/[mt:{}] trans_virtfd (100K)",
+                    ALGONAME, threadcount
                 ),
                 threadcount,
             ),
@@ -146,8 +140,8 @@ pub fn run_benchmark(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new(
                 format!(
-                    "{}: [multi-threaded:{}] get_translate_refresh (1K each loop)",
-                    threadcount, ALGONAME
+                    "{}/[mt:{}] get_trans (1K per)",
+                    ALGONAME, threadcount
                 ),
                 threadcount,
             ),

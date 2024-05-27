@@ -1,0 +1,10 @@
+#!/bin/bash
+
+for file in impl_macros/*
+do 
+	echo
+	echo " *** Switching to implementation: $file *** "
+	echo
+	cp $file src/current_impl
+	$*
+done

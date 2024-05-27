@@ -83,8 +83,8 @@
 //      is any different than a static array...
 //
 
-mod dashmapvecglobal;
-pub use crate::dashmapvecglobal::*;
+//mod dashmapvecglobal;
+//pub use crate::dashmapvecglobal::*;
 
 //  Mutex<Box<[[FDTableEntry;1024];256]>>  Space here is ~6MB total!?
 //
@@ -196,6 +196,8 @@ pub use crate::dashmapvecglobal::*;
 //       ENFILE The system-wide limit on the total number of open files
 //              has been reached. (mostly unimplemented)
 //
+
+include!("current_impl");
 
 // This is used everywhere...  Should I re-export more of these symbols?
 pub mod threei;
