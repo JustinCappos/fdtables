@@ -23,7 +23,7 @@ pub fn run_benchmark(c: &mut Criterion) {
     let fd3 = get_unused_virtual_fd(threei::TESTING_CAGEID, 30, true, 10).unwrap();
 
     // I'm going to insert three items, then do 10000 queries, then clean up...
-    group.bench_function(format!("{}/st: trans (10K)",ALGONAME), |b| {
+    group.bench_function(format!("{}/st: trans (10K)", ALGONAME), |b| {
         b.iter(|| {
             for _ in 0..1000 {
                 translate_virtual_fd(threei::TESTING_CAGEID, fd1).unwrap();
@@ -43,7 +43,7 @@ pub fn run_benchmark(c: &mut Criterion) {
     refresh();
 
     // only do 1000 because 1024 is a common lower bound
-    group.bench_function(format!("{}/st: getvirt (1K)",ALGONAME), |b| {
+    group.bench_function(format!("{}/st: getvirt (1K)", ALGONAME), |b| {
         b.iter(|| {
             for _ in 0..1000 {
                 _ = get_unused_virtual_fd(threei::TESTING_CAGEID, 30, true, 10).unwrap();
@@ -56,7 +56,7 @@ pub fn run_benchmark(c: &mut Criterion) {
 
     // Check get_optionalinfo...
     let fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 30, true, 10).unwrap();
-    group.bench_function(format!("{}/st: get_opt (10K)",ALGONAME), |b| {
+    group.bench_function(format!("{}/st: get_opt (10K)", ALGONAME), |b| {
         b.iter(|| {
             for _ in 0..10000 {
                 _ = get_optionalinfo(threei::TESTING_CAGEID, fd).unwrap();
@@ -68,7 +68,7 @@ pub fn run_benchmark(c: &mut Criterion) {
 
     // flip the set_optionalinfo data...
     let fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 30, true, 10).unwrap();
-    group.bench_function(format!("{}/st: set_opt (10K)",ALGONAME), |b| {
+    group.bench_function(format!("{}/st: set_opt (10K)", ALGONAME), |b| {
         b.iter(|| {
             for _ in 0..5000 {
                 _ = set_optionalinfo(threei::TESTING_CAGEID, fd, 100).unwrap();
@@ -90,10 +90,7 @@ pub fn run_benchmark(c: &mut Criterion) {
     for threadcount in [1, 2, 4, 8, 16].iter() {
         group.bench_with_input(
             BenchmarkId::new(
-                format!(
-                    "{}/[mt:{}] trans_virtfd (100K)",
-                    ALGONAME, threadcount
-                ),
+                format!("{}/[mt:{}] trans_virtfd (100K)", ALGONAME, threadcount),
                 threadcount,
             ),
             threadcount,
@@ -139,10 +136,7 @@ pub fn run_benchmark(c: &mut Criterion) {
     for threadcount in [1, 2, 4, 8, 16].iter() {
         group.bench_with_input(
             BenchmarkId::new(
-                format!(
-                    "{}/[mt:{}] get_trans (1K per)",
-                    ALGONAME, threadcount
-                ),
+                format!("{}/[mt:{}] get_trans (1K per)", ALGONAME, threadcount),
                 threadcount,
             ),
             threadcount,

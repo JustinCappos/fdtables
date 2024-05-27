@@ -9,19 +9,18 @@
 //! impact the other cage.
 //!
 //! As such, this is a general library meant to handle those issues.  It has
-//! the primary function of letting set up virtual (child cage) to real 
+//! the primary function of letting set up virtual (child cage) to real
 //! (the underlying system) fd mappings.
 //!
 //! Note that the code re-exports an implementation from a specific submodule.
 //! This was done to make the algorithmic options easier to benchmark and
 //! compare.  You, the caller, should only use the base fdtables::XXX API and
-//! not fdtables::algorithmname::XXX, as the latter will not be stable over 
+//! not fdtables::algorithmname::XXX, as the latter will not be stable over
 //! time.
 
 // I likely should remove this...  I only use it to make empty_fds_for_exec
 // slightly more efficient in some implementations...
 #![feature(hash_extract_if)]
-
 // TODO: This is to disable a warning in threei's reversible enum definition.
 // I'd like to revisit that clippy warning later and see if we want to handle
 // it differently
@@ -110,7 +109,7 @@
 //
 
 //
-// The purpose is to allow a cage to have a set of virtual fds which is 
+// The purpose is to allow a cage to have a set of virtual fds which is
 // translated into real fds.
 //
 // For example, suppose a cage with cageid A, wants to open a file.  That open
@@ -240,7 +239,7 @@ mod tests {
     // Basic test to ensure that I can get a virtual fd for a real fd and
     // find the value in the table afterwards...
     fn get_and_translate_work() {
-        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -261,7 +260,7 @@ mod tests {
     #[test]
     // Let's see if I can change the cloexec flag...
     fn try_set_cloexec() {
-        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -276,7 +275,7 @@ mod tests {
     #[test]
     // Get and set optionalinfo
     fn try_get_and_set_optionalinfo() {
-        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -306,7 +305,7 @@ mod tests {
 
     #[test]
     fn test_remove_cage_from_fdtable() {
-        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -330,7 +329,7 @@ mod tests {
 
     #[test]
     fn test_empty_fds_for_exec() {
-        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -357,7 +356,7 @@ mod tests {
 
     #[test]
     fn return_fdtable_copy_test() {
-        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -420,7 +419,7 @@ mod tests {
 
     #[test]
     fn test_copy_fdtable_for_cage() {
-        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -466,7 +465,7 @@ mod tests {
     #[test]
     // Let's test to see our functions error gracefully with badfds...
     fn get_specific_virtual_fd_tests() {
-        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -507,7 +506,7 @@ mod tests {
     #[test]
     // Let's test to see our functions error gracefully with badfds...
     fn badfd_test() {
-        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -524,7 +523,7 @@ mod tests {
     #[test]
     // Let's do a multithreaded test...
     fn multithreaded_test() {
-        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -563,7 +562,7 @@ mod tests {
     #[test]
     // Let's do a multithreaded test...
     fn multithreaded_write_test() {
-        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -593,7 +592,7 @@ mod tests {
     // Let's use up all the fds and verify we get an error...
     #[test]
     fn use_all_fds_test() {
-        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -635,7 +634,7 @@ mod tests {
     #[should_panic]
     // Let's check to make sure we panic with an invalid cageid
     fn translate_panics_on_bad_cageid_test() {
-        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -647,7 +646,7 @@ mod tests {
     #[should_panic]
     // Let's check to make sure we panic with an invalid cageid
     fn get_unused_virtual_fd_panics_on_bad_cageid_test() {
-        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -659,7 +658,7 @@ mod tests {
     #[should_panic]
     // Let's check to make sure we panic with an invalid cageid
     fn set_cloexec_panics_on_bad_cageid_test() {
-        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
