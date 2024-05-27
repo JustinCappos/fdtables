@@ -74,14 +74,18 @@
 //      array is any faster...
 //
 
-mod dashmaparrayglobal;
-pub use crate::dashmaparrayglobal::*;
+//mod dashmaparrayglobal;
+//pub use crate::dashmaparrayglobal::*;
 
 //
 //  DashMap<u64,vec!(FDTableEntry;1024)>  Space is ~30KB per cage?!?
-//      Static DashMap.  Let's see if having the FDTableEntries be a Vector
+//      Vector DashMap.  Let's see if having the FDTableEntries be a Vector
 //      is any different than a static array...
 //
+
+mod dashmapvecglobal;
+pub use crate::dashmapvecglobal::*;
+
 //  Mutex<Box<[[FDTableEntry;1024];256]>>  Space here is ~6MB total!?
 //
 //  struct PerCageFDTable {
