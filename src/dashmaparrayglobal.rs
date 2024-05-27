@@ -240,7 +240,7 @@ pub fn copy_fdtable_for_cage(srccageid: u64, newcageid: u64) -> Result<(), three
     }
 
     // Insert a copy and ensure it didn't exist...
-    let hmcopy = FDTABLE.get(&srccageid).unwrap().clone();
+    let hmcopy = *FDTABLE.get(&srccageid).unwrap();
     assert!(FDTABLE.insert(newcageid, hmcopy).is_none());
     Ok(())
     // I'm not going to bother to check the number of fds used overall yet...
@@ -287,11 +287,9 @@ pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
 
     let mut myfdarray = FDTABLE.get_mut(&cageid).unwrap();
     for item in 0..FD_PER_PROCESS_MAX as usize {
-        if myfdarray[item].is_some() {
-            if myfdarray[item].unwrap().should_cloexec {
-                myhashmap.insert(item as u64,myfdarray[item].unwrap());
-                myfdarray[item] = None;
-            }
+        if myfdarray[item].is_some() && myfdarray[item].unwrap().should_cloexec {
+            myhashmap.insert(item as u64,myfdarray[item].unwrap());
+            myfdarray[item] = None;
         }
     }
 

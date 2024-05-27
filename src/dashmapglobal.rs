@@ -128,9 +128,10 @@ pub fn get_unused_virtual_fd(
 
     // Check the fds in order.
     for fdcandidate in 0..FD_PER_PROCESS_MAX {
-        if !mymap.contains_key(&fdcandidate) {
-            // I just checked.  Should not be there...
-            mymap.insert(fdcandidate, myentry);
+        // Get the entry if it's Vacant and assign it to e (so I can fill
+        // it in).
+        if let std::collections::hash_map::Entry::Vacant(e) = mymap.entry(fdcandidate) {
+            e.insert(myentry);
             return Ok(fdcandidate);
         }
     }

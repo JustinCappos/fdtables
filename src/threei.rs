@@ -4,8 +4,6 @@
 
 // Let's not have clippy warn for EAGAIN, etc.
 #![allow(clippy::upper_case_acronyms)]
-// Let's not have clippy warn for EAGAIN, etc.
-#![allow(clippy::upper_case_acronyms)]
 // Don't warn if all listed things (like errnos) are not used in code...
 #![allow(dead_code)]
 

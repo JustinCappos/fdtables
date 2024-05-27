@@ -22,6 +22,11 @@
 // slightly more efficient in some implementations...
 #![feature(hash_extract_if)]
 
+// TODO: This is to disable a warning in threei's reversible enum definition.
+// I'd like to revisit that clippy warning later and see if we want to handle
+// it differently
+#![allow(clippy::result_unit_err)]
+
 // NOTE: This setup is a bit odd, I know.  I'm creating different
 // implementations of the same algorithm and I'd like to test them.  Originally
 // I was going to have a struct interface where I switched between them by

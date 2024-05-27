@@ -287,11 +287,9 @@ pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
 
     let mut myfdvec = FDTABLE.get_mut(&cageid).unwrap();
     for item in 0..FD_PER_PROCESS_MAX as usize {
-        if myfdvec[item].is_some() {
-            if myfdvec[item].unwrap().should_cloexec {
-                myhashmap.insert(item as u64,myfdvec[item].unwrap());
-                myfdvec[item] = None;
-            }
+        if myfdvec[item].is_some() && myfdvec[item].unwrap().should_cloexec {
+            myhashmap.insert(item as u64,myfdvec[item].unwrap());
+            myfdvec[item] = None;
         }
     }
 
