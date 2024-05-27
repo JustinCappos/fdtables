@@ -65,13 +65,18 @@
 //      Done: GlobalDashMap
 //
 
-mod dashmapglobal;
-pub use crate::dashmapglobal::*;
+//mod dashmapglobal;
+//pub use crate::dashmapglobal::*;
 
 //
-//  DashMap<u64,[FDTableEntry;1024]>  Space is ~24KB per cage?!?
+//  DashMap<u64,[Option<FDTableEntry>;1024]>  Space is ~24KB per cage?!?
 //      Static DashMap.  Let's see if having the FDTableEntries be a static
 //      array is any faster...
+//
+
+mod dashmaparrayglobal;
+pub use crate::dashmaparrayglobal::*;
+
 //
 //  DashMap<u64,vec!(FDTableEntry;1024)>  Space is ~30KB per cage?!?
 //      Static DashMap.  Let's see if having the FDTableEntries be a Vector
@@ -224,7 +229,10 @@ mod tests {
     // Basic test to ensure that I can get a virtual fd for a real fd and
     // find the value in the table afterwards...
     fn get_and_translate_work() {
-        let mut _thelock = TESTMUTEX.lock().unwrap();
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
         refresh();
 
         const REALFD: u64 = 10;
@@ -242,7 +250,10 @@ mod tests {
     #[test]
     // Let's see if I can change the cloexec flag...
     fn try_set_cloexec() {
-        let mut _thelock = TESTMUTEX.lock().unwrap();
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
         refresh();
 
         const REALFD: u64 = 10;
@@ -254,7 +265,10 @@ mod tests {
     #[test]
     // Get and set optionalinfo
     fn try_get_and_set_optionalinfo() {
-        let mut _thelock = TESTMUTEX.lock().unwrap();
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
         refresh();
 
         // Acquire two virtual fds...
@@ -281,7 +295,10 @@ mod tests {
 
     #[test]
     fn test_remove_cage_from_fdtable() {
-        let mut _thelock = TESTMUTEX.lock().unwrap();
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
         refresh();
 
         // Acquire two virtual fds...
@@ -302,7 +319,10 @@ mod tests {
 
     #[test]
     fn test_empty_fds_for_exec() {
-        let mut _thelock = TESTMUTEX.lock().unwrap();
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
         refresh();
 
         // Acquire two virtual fds...
@@ -326,7 +346,10 @@ mod tests {
 
     #[test]
     fn return_fdtable_copy_test() {
-        let mut _thelock = TESTMUTEX.lock().unwrap();
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
         refresh();
         // Acquire two virtual fds...
         let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
@@ -386,7 +409,10 @@ mod tests {
 
     #[test]
     fn test_copy_fdtable_for_cage() {
-        let mut _thelock = TESTMUTEX.lock().unwrap();
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
         refresh();
 
         // Acquire two virtual fds...
@@ -429,7 +455,10 @@ mod tests {
     #[test]
     // Let's test to see our functions error gracefully with badfds...
     fn get_specific_virtual_fd_tests() {
-        let mut _thelock = TESTMUTEX.lock().unwrap();
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
         refresh();
 
         let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
@@ -467,7 +496,10 @@ mod tests {
     #[test]
     // Let's test to see our functions error gracefully with badfds...
     fn badfd_test() {
-        let mut _thelock = TESTMUTEX.lock().unwrap();
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
         refresh();
 
         // some made up number...
@@ -481,7 +513,10 @@ mod tests {
     #[test]
     // Let's do a multithreaded test...
     fn multithreaded_test() {
-        let mut _thelock = TESTMUTEX.lock().unwrap();
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
 
         refresh();
         let fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, true, 100).unwrap();
@@ -517,7 +552,10 @@ mod tests {
     #[test]
     // Let's do a multithreaded test...
     fn multithreaded_write_test() {
-        let mut _thelock = TESTMUTEX.lock().unwrap();
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
 
         refresh();
         for threadcount in [1, 2, 4, 8, 16].iter() {
@@ -544,7 +582,10 @@ mod tests {
     // Let's use up all the fds and verify we get an error...
     #[test]
     fn use_all_fds_test() {
-        let mut _thelock = TESTMUTEX.lock().unwrap();
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
         refresh();
 
         const REALFD: u64 = 10;
@@ -581,33 +622,36 @@ mod tests {
 
     #[test]
     #[should_panic]
-    #[ignore] // Don't run by default because it poisons the GLOBALFDTABLE
-              // when panicking
-              // Let's check to make sure we panic with an invalid cageid
+    // Let's check to make sure we panic with an invalid cageid
     fn translate_panics_on_bad_cageid_test() {
-        // Should only run individually, so no need to lock...
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
 
         let _ = translate_virtual_fd(threei::INVALID_CAGEID, 10);
     }
 
     #[test]
     #[should_panic]
-    #[ignore] // Don't run by default because it poisons the GLOBALFDTABLE
-              // when panicking
-              // Let's check to make sure we panic with an invalid cageid
+    // Let's check to make sure we panic with an invalid cageid
     fn get_unused_virtual_fd_panics_on_bad_cageid_test() {
-        // Should only run individually, so no need to lock...
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
 
         let _ = get_unused_virtual_fd(threei::INVALID_CAGEID, 10, false, 100);
     }
 
     #[test]
     #[should_panic]
-    #[ignore] // Don't run by default because it poisons the GLOBALFDTABLE
-              // when panicking
-              // Let's check to make sure we panic with an invalid cageid
+    // Let's check to make sure we panic with an invalid cageid
     fn set_cloexec_panics_on_bad_cageid_test() {
-        // Should only run individually, so no need to lock...
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e|{
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
 
         let _ = set_cloexec(threei::INVALID_CAGEID, 10, true);
     }

@@ -1,6 +1,7 @@
-//  DashMap<u64,HashMap<u64,FDTableEntry>>
-//      Just a basic solution with a dashmap instead of a mutex + hashmap
-//      Done: GlobalDashMap
+//  DashMap<u64,[Option<FDTableEntry>;FD_PER_PROCESSS_MAX]>  Space is ~24KB 
+//  per cage w/ 1024 fds?!?
+//      Static DashMap.  Let's see if having the FDTableEntries be a static
+//      array is any faster...
 
 use crate::threei;
 
@@ -10,9 +11,7 @@ use lazy_static::lazy_static;
 
 use std::collections::HashMap;
 
-// This is a slightly more advanced fdtables library using DashMap.  
-// The purpose is to allow a cage to have a set of virtual fds which is 
-// translated into real fds.
+// This uses a Dashmap (for cages) with an array of FDTableEntry items.
 
 /// Per-process maximum number of fds...
 pub const FD_PER_PROCESS_MAX: u64 = 1024;
@@ -24,7 +23,7 @@ pub const TOTAL_FD_MAX: u64 = 4096;
 
 // algorithm name.  Need not be listed.  Used in benchmarking output
 #[doc(hidden)]
-pub const ALGONAME: &str = "DashMapGlobal";
+pub const ALGONAME: &str = "DashMapArrayGlobal";
 
 /// Use this to indicate there isn't a real fd backing an item
 pub const NO_REAL_FD: u64 = 0xffabcdef01;
@@ -51,17 +50,9 @@ pub struct FDTableEntry {
 // when a cage makes a call.
 
 // In order to store this information, I'm going to use a DashMap which
-// has keys of (cageid:u64) and values that are another HashMap.  The second
-// HashMap has keys of (virtualfd:64) and values of (realfd:u64,
-// should_cloexec:bool, optionalinfo:u64).
+// has keys of (cageid:u64) and values that are an array of FD_PER_PROCESS_MAX
+// Option<FDTableEntry> items. 
 //
-// To speed up lookups, I could have used arrays instead of HashMaps.  In
-// theory, that space is far too large, but likely each could be bounded to
-// smaller values like 1024.  For simplicity I avoided this for now.
-//
-// I thought also about having different tables for the tuple of values
-// since they aren't always used together, but this seemed needlessly complex
-// (at least at first).
 //
 
 // This lets me initialize the code as a global.
@@ -70,13 +61,13 @@ lazy_static! {
   #[derive(Debug)]
   // Usually I would care more about this, but I'm keeping this close to
   // the vanilla implementation...
-  static ref FDTABLE: DashMap<u64, HashMap<u64,FDTableEntry>> = {
+  static ref FDTABLE: DashMap<u64, [Option<FDTableEntry>;FD_PER_PROCESS_MAX as usize]> = {
     let m = DashMap::new();
     // Insert a cage so that I have something to fork / test later, if need
     // be. Otherwise, I'm not sure how I get this started. I think this
     // should be invalid from a 3i standpoint, etc. Could this mask an
     // error in the future?
-    m.insert(threei::TESTING_CAGEID,HashMap::new());
+    m.insert(threei::TESTING_CAGEID,[Option::None;FD_PER_PROCESS_MAX as usize]);
     m
   };
 }
@@ -91,11 +82,12 @@ pub fn translate_virtual_fd(cageid: u64, virtualfd: u64) -> Result<u64, threei::
         panic!("Unknown cageid in fdtable access");
     }
 
-    return match FDTABLE.get(&cageid).unwrap().get(&virtualfd) {
+    return match FDTABLE.get(&cageid).unwrap()[virtualfd as usize] {
         Some(tableentry) => Ok(tableentry.realfd),
         None => Err(threei::Errno::EBADFD as u64),
     };
 }
+
 
 // This is fairly slow if I just iterate sequentially through numbers.
 // However there are not that many to choose from.  I could pop from a list
@@ -124,13 +116,14 @@ pub fn get_unused_virtual_fd(
         optionalinfo,
     };
 
-    let mut mymap = FDTABLE.get_mut(&cageid).unwrap();
+    let mut myfdarray = FDTABLE.get_mut(&cageid).unwrap();
 
     // Check the fds in order.
     for fdcandidate in 0..FD_PER_PROCESS_MAX {
-        if !mymap.contains_key(&fdcandidate) {
+        // FIXME: This is likely very slow.  Should do something smarter...
+        if myfdarray[fdcandidate as usize].is_none() {
             // I just checked.  Should not be there...
-            mymap.insert(fdcandidate, myentry);
+            myfdarray[fdcandidate as usize] = Some(myentry);
             return Ok(fdcandidate);
         }
     }
@@ -174,15 +167,11 @@ pub fn get_specific_virtual_fd(
 
     if FDTABLE
         .get(&cageid)
-        .unwrap()
-        .contains_key(&requested_virtualfd)
+        .unwrap()[requested_virtualfd as usize].is_some()
     {
         Err(threei::Errno::ELIND as u64)
     } else {
-        FDTABLE
-            .get_mut(&cageid)
-            .unwrap()
-            .insert(requested_virtualfd, myentry);
+        FDTABLE.get_mut(&cageid).unwrap()[requested_virtualfd as usize] = Some(myentry);
         Ok(())
     }
 }
@@ -195,14 +184,13 @@ pub fn set_cloexec(cageid: u64, virtualfd: u64, is_cloexec: bool) -> Result<(), 
         panic!("Unknown cageid in fdtable access");
     }
 
-    // Set the is_cloexec flag or return EBADFD, if that's missing...
-    return match FDTABLE.get_mut(&cageid).unwrap().get_mut(&virtualfd) {
-        Some(tableentry) => {
-            tableentry.should_cloexec = is_cloexec;
-            Ok(())
-        }
-        None => Err(threei::Errno::EBADFD as u64),
-    };
+    // return EBADFD, if the fd is missing...
+    if FDTABLE.get(&cageid).unwrap()[virtualfd as usize].is_none() {
+        return Err(threei::Errno::EBADFD as u64);
+    }
+    // Set the is_cloexec flag
+    FDTABLE.get_mut(&cageid).unwrap()[virtualfd as usize].as_mut().unwrap().should_cloexec = is_cloexec;
+    Ok(())
 }
 
 // Super easy, just return the optionalinfo field...
@@ -212,7 +200,7 @@ pub fn get_optionalinfo(cageid: u64, virtualfd: u64) -> Result<u64, threei::RetV
         panic!("Unknown cageid in fdtable access");
     }
 
-    return match FDTABLE.get(&cageid).unwrap().get(&virtualfd) {
+    return match FDTABLE.get(&cageid).unwrap()[virtualfd as usize] {
         Some(tableentry) => Ok(tableentry.optionalinfo),
         None => Err(threei::Errno::EBADFD as u64),
     };
@@ -230,14 +218,14 @@ pub fn set_optionalinfo(
         panic!("Unknown cageid in fdtable access");
     }
 
+    // return EBADFD, if the fd is missing...
+    if FDTABLE.get(&cageid).unwrap()[virtualfd as usize].is_none() {
+        return Err(threei::Errno::EBADFD as u64);
+    }
+
     // Set optionalinfo or return EBADFD, if that's missing...
-    return match FDTABLE.get_mut(&cageid).unwrap().get_mut(&virtualfd) {
-        Some(tableentry) => {
-            tableentry.optionalinfo = optionalinfo;
-            Ok(())
-        }
-        None => Err(threei::Errno::EBADFD as u64),
-    };
+    FDTABLE.get_mut(&cageid).unwrap()[virtualfd as usize].as_mut().unwrap().optionalinfo = optionalinfo;
+    Ok(())
 }
 
 // Helper function used for fork...  Copies an fdtable for another process
@@ -268,7 +256,22 @@ pub fn remove_cage_from_fdtable(cageid: u64) -> HashMap<u64, FDTableEntry> {
         panic!("Unknown cageid in fdtable access");
     }
 
-    FDTABLE.remove(&cageid).unwrap().1
+    let mut myhashmap = HashMap::new();
+
+    let myfdarray = FDTABLE.get(&cageid).unwrap();
+    for item in 0..FD_PER_PROCESS_MAX as usize {
+        if myfdarray[item].is_some() {
+            myhashmap.insert(item as u64,myfdarray[item].unwrap());
+        }
+    }
+    // I need to do this or else I'll try to double claim the lock and
+    // deadlock...
+    drop(myfdarray);
+
+    FDTABLE.remove(&cageid);
+
+    myhashmap
+
 }
 
 // This removes all fds with the should_cloexec flag set.  They are returned
@@ -280,14 +283,20 @@ pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
         panic!("Unknown cageid in fdtable access");
     }
 
-    // Create this hashmap through an lambda that checks should_cloexec...
-    // See: https://doc.rust-lang.org/std/collections/struct.HashMap.html#method.extract_if
+    let mut myhashmap = HashMap::new();
 
-    FDTABLE
-        .get_mut(&cageid)
-        .unwrap()
-        .extract_if(|_k, v| v.should_cloexec)
-        .collect()
+    let mut myfdarray = FDTABLE.get_mut(&cageid).unwrap();
+    for item in 0..FD_PER_PROCESS_MAX as usize {
+        if myfdarray[item].is_some() {
+            if myfdarray[item].unwrap().should_cloexec {
+                myhashmap.insert(item as u64,myfdarray[item].unwrap());
+                myfdarray[item] = None;
+            }
+        }
+    }
+
+    myhashmap
+
 }
 
 // Returns the HashMap returns a copy of the fdtable for a cage.  Useful 
@@ -300,13 +309,23 @@ pub fn return_fdtable_copy(cageid: u64) -> HashMap<u64, FDTableEntry> {
         panic!("Unknown cageid in fdtable access");
     }
 
-    FDTABLE.get(&cageid).unwrap().clone()
+    let mut myhashmap = HashMap::new();
+
+    let myfdarray = FDTABLE.get(&cageid).unwrap();
+    for item in 0..FD_PER_PROCESS_MAX as usize {
+        if myfdarray[item].is_some() {
+            myhashmap.insert(item as u64,myfdarray[item].unwrap());
+        }
+    }
+    myhashmap
 }
+
 
 #[doc(hidden)]
 // Helper to initialize / empty out state so we can test with a clean system...
 // This is only used in tests, thus is hidden...
 pub fn refresh() {
     FDTABLE.clear();
-    FDTABLE.insert(threei::TESTING_CAGEID, HashMap::new());
+    FDTABLE.insert(threei::TESTING_CAGEID,[Option::None;FD_PER_PROCESS_MAX as usize]);
 }
+

@@ -198,14 +198,13 @@ pub fn get_unused_virtual_fd(
         optionalinfo,
     };
 
+    let myfdmap = fdtable.get_mut(&cageid).unwrap();
+
     // Check the fds in order.
     for fdcandidate in 0..FD_PER_PROCESS_MAX {
-        if !fdtable.get(&cageid).unwrap().contains_key(&fdcandidate) {
+        if !myfdmap.contains_key(&fdcandidate) {
             // I just checked.  Should not be there...
-            fdtable
-                .get_mut(&cageid)
-                .unwrap()
-                .insert(fdcandidate, myentry);
+            myfdmap.insert(fdcandidate, myentry);
             return Ok(fdcandidate);
         }
     }
@@ -310,7 +309,7 @@ pub fn set_optionalinfo(
         panic!("Unknown cageid in fdtable access");
     }
 
-    // Set the is_cloexec flag or return EBADFD, if that's missing...
+    // Set optionalinfo or return EBADFD, if that's missing...
     return match fdtable.get_mut(&cageid).unwrap().get_mut(&virtualfd) {
         Some(tableentry) => {
             tableentry.optionalinfo = optionalinfo;
@@ -389,9 +388,15 @@ pub fn return_fdtable_copy(cageid: u64) -> HashMap<u64, FDTableEntry> {
 
 // Helper to initialize / empty out state so we can test with a clean system...
 // only used when testing...
+//
+// I'm cleaning up "poisoned" mutexes here so that I can handle tests that 
+// panic
 #[doc(hidden)]
 pub fn refresh() {
-    let mut fdtable = GLOBALFDTABLE.lock().unwrap();
+    let mut fdtable = GLOBALFDTABLE.lock().unwrap_or_else(|e| {
+        GLOBALFDTABLE.clear_poison();
+        e.into_inner()
+    });
     fdtable.clear();
     fdtable.insert(threei::TESTING_CAGEID, HashMap::new());
 }
