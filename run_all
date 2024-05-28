@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# save the old impl
+mv src/current_impl backup_current_impl
+
 for file in impl_macros/*
 do 
 	echo
@@ -8,3 +11,6 @@ do
 	cp $file src/current_impl
 	$*
 done
+
+# restore current_impl
+mv backup_current_impl src/current_impl
