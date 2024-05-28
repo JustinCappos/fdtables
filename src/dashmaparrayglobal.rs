@@ -13,20 +13,12 @@ use std::collections::HashMap;
 
 // This uses a Dashmap (for cages) with an array of FDTableEntry items.
 
-/// Per-process maximum number of fds...
-pub const FD_PER_PROCESS_MAX: u64 = 1024;
-
-// BUG / TODO: Use this in some sane way...
-#[allow(dead_code)]
-/// Global maximum number of fds... (checks may not be implemented)
-pub const TOTAL_FD_MAX: u64 = 4096;
+// Get constants about the fd table sizes, etc.
+pub use super::commonconstants::*;
 
 // algorithm name.  Need not be listed.  Used in benchmarking output
 #[doc(hidden)]
 pub const ALGONAME: &str = "DashMapArrayGlobal";
-
-/// Use this to indicate there isn't a real fd backing an item
-pub const NO_REAL_FD: u64 = 0xffabcdef01;
 
 // These are the values we look up with at the end...
 #[doc = include_str!("../docs/fdtableentry.md")]

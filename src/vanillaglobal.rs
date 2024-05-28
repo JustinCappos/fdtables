@@ -84,20 +84,12 @@ use std::collections::HashMap;
 //       ENFILE The system-wide limit on the total number of open files
 //              has been reached.
 
-/// Per-process maximum number of fds...
-pub const FD_PER_PROCESS_MAX: u64 = 1024;
+// Get constants about the fd table sizes, etc.
+pub use super::commonconstants::*;
 
-// BUG / TODO: Use this in some sane way...
-#[allow(dead_code)]
-/// Global maximum number of fds... (checks may not be implemented)
-pub const TOTAL_FD_MAX: u64 = 4096;
-
-// algorithm name.  Need not be listed.
+// algorithm name.  Need not be listed in the docs.
 #[doc(hidden)]
 pub const ALGONAME: &str = "VanillaGlobal";
-
-/// Use this to indicate there isn't a real fd backing an item
-pub const NO_REAL_FD: u64 = 0xffabcdef01;
 
 // These are the values we look up with at the end...
 #[doc = include_str!("../docs/fdtableentry.md")]

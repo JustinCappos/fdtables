@@ -203,6 +203,9 @@
 
 include!("current_impl");
 
+mod commonconstants;
+pub use commonconstants::*;
+
 // This is used everywhere...  Should I re-export more of these symbols?
 pub mod threei;
 /// Error values (matching errno in Linux) for the various call Results

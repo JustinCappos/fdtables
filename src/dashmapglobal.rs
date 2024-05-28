@@ -14,20 +14,13 @@ use std::collections::HashMap;
 // The purpose is to allow a cage to have a set of virtual fds which is 
 // translated into real fds.
 
-/// Per-process maximum number of fds...
-pub const FD_PER_PROCESS_MAX: u64 = 1024;
-
-// BUG / TODO: Use this in some sane way...
-#[allow(dead_code)]
-/// Global maximum number of fds... (checks may not be implemented)
-pub const TOTAL_FD_MAX: u64 = 4096;
-
-// algorithm name.  Need not be listed.  Used in benchmarking output
+// algorithm name.  Used in benchmarking output.  Isn't documented because
+// this doesn't need to show up when we build our docs
 #[doc(hidden)]
 pub const ALGONAME: &str = "DashMapGlobal";
 
-/// Use this to indicate there isn't a real fd backing an item
-pub const NO_REAL_FD: u64 = 0xffabcdef01;
+// Get constants about the fd table sizes, etc.
+pub use super::commonconstants::*;
 
 // These are the values we look up with at the end...
 #[doc = include_str!("../docs/fdtableentry.md")]
