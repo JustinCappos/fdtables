@@ -31,7 +31,6 @@ done
 # save the old impl
 mv src/current_impl backup_current_impl
 
-echo "Redirect: $redirectoutput"
 for file in impl_macros/*
 do 
 	echo
