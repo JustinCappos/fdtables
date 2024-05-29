@@ -7,16 +7,18 @@ use fdtables::*;
 
 use std::thread;
 
+use std::time::Duration;
+
 pub fn run_benchmark(c: &mut Criterion) {
     // I'm going to do some simple calls using fdtables in this file
     let mut group = c.benchmark_group("fdtables basics");
 
     // Reduce the time to reduce disk space needed and go faster.
     // Default is 5s...
-    //group.measurement_time(Duration::from_secs(2));
+    group.measurement_time(Duration::from_secs(3));
 
     // Shorten the warm up time as well from 3s to this...
-    //group.warm_up_time(Duration::from_secs(1));
+    group.warm_up_time(Duration::from_secs(1));
 
     let fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, true, 100).unwrap();
     let fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 20, true, 1).unwrap();
@@ -76,6 +78,134 @@ pub fn run_benchmark(c: &mut Criterion) {
             }
         })
     });
+
+    refresh();
+
+
+    // TODO: I'd love to count memory use in these tests too.  It really 
+    // varies widely...
+
+    // check copy_fdtable_for_cage (fork) time...
+    for fdcount in [1, 4, 16, 64, 256, 1024].iter() {
+        // Setup the fds up front, outside of the benchmark...
+        for _ in 0..*fdcount {
+            let _fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 30, false, 10).unwrap(); 
+        }
+        let mut cagenumtouse = 1;
+        group.bench_with_input(
+            BenchmarkId::new(
+                format!("{}/st: fork (fds:{})", ALGONAME, fdcount),
+                fdcount,
+            ),
+            fdcount,
+            |b, _fdcount| {
+                b.iter({
+                    || {
+                        copy_fdtable_for_cage(threei::TESTING_CAGEID,cagenumtouse).unwrap();
+                        // Get a new cage each time...
+                        cagenumtouse += 1;
+                        // The number of cages may grow large and this could 
+                        // also skew the results...  Reset after 100...
+                        //
+                        // Also, if I ever get around to limiting the global
+                        // fds, this will panic...
+                        if cagenumtouse % 100 == 0 {
+                            refresh();
+                        }
+                    }
+                })
+            },
+        );
+        refresh();
+    }
+    refresh();
+
+    // check remove_cage_from_fdtable (exit) time...
+    for fdcount in [1, 4, 16, 64, 256, 1024].iter() {
+        group.bench_with_input(
+            BenchmarkId::new(
+                format!("{}/st: exit (fds:{})", ALGONAME, fdcount),
+                fdcount,
+            ),
+            fdcount,
+            |b, _fdcount| {
+                b.iter({
+                    || {
+                        // BUG: Is there a better way to do this?  I really
+                        // only want to check the empty_fds_for_exec() call
+                        // time...
+                        for _ in 0..*fdcount {
+                            let _fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 30, false, 10).unwrap(); 
+                        }
+                        remove_cage_from_fdtable(threei::TESTING_CAGEID);
+                        // need to re-add the cage...
+                        refresh();
+                    }
+                })
+            },
+        );
+    }
+    refresh();
+
+
+    // check on empty_fds_for_exec with the flag set to false...
+    for fdcount in [1, 4, 16, 64, 256, 1024].iter() {
+        group.bench_with_input(
+            BenchmarkId::new(
+                format!("{}/st: exec (false) (fds:{})", ALGONAME, fdcount),
+                fdcount,
+            ),
+            fdcount,
+            |b, fdcount| {
+                b.iter({
+                    || {
+                        // BUG: Is there a better way to do this?  I really
+                        // only want to check the empty_fds_for_exec() call
+                        // time...
+                        for _ in 0..*fdcount {
+                            let _fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 30, false, 10).unwrap(); // Notice the false here!
+                        }
+                        empty_fds_for_exec(threei::TESTING_CAGEID);
+                        refresh();
+                    }
+                })
+            },
+        );
+    }
+    refresh();
+
+
+    // Now, check on empty_fds_for_exec with the flag set to true...
+    for fdcount in [1, 4, 16, 64, 256, 1024].iter() {
+        group.bench_with_input(
+            BenchmarkId::new(
+                format!("{}/st: exec (true) (fds:{})", ALGONAME, fdcount),
+                fdcount,
+            ),
+            fdcount,
+            |b, fdcount| {
+                b.iter({
+                    || {
+                        // BUG: Is there a better way to do this?  I really
+                        // only want to check the empty_fds_for_exec() call
+                        // time...
+                        for _ in 0..*fdcount {
+                            let _fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 30, true, 10).unwrap(); // Notice the true here!
+                        }
+                        empty_fds_for_exec(threei::TESTING_CAGEID);
+                        //refresh(); <- Don't need this because the prior
+                        // line cleans up for me!
+                    }
+                })
+            },
+        );
+    }
+    refresh();
+
+
+
+
+
 
     refresh();
 
