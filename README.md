@@ -21,6 +21,12 @@ the desired implementation.
 If you want to test multiple implementations, there is a script `run_all` which will swap out the implementation for you and iterate through 
 all copies.  Simply type something like `./run_all cargo test` to run the unit tests on all implementations.
 
+To make a pretty benchmark comparison table, install criterion-table and run the following:
+* `./run_all -o cargo criterion --message-format=json`
+* `cat target/*.out | criterion-table > BENCHMARKS.md`
+
+Then open BENCHMARKS.md to see the results.  It is in Github markdown format, so is best viewed there.
+
 # An example use for fdtables
 The fundamental problem which this solves is ensuring that different cages must have distinct file descriptor mappings.  In other words, suppose
 you have two cages, A and B that communicate over a pipe.  For example, let's look at the pipeline: `grep foo myfile | wc`.  These cages will 
