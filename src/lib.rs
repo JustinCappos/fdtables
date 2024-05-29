@@ -20,7 +20,7 @@
 
 // I likely should remove this...  I only use it to make empty_fds_for_exec
 // slightly more efficient in some implementations...
-#![feature(hash_extract_if)]
+//#![feature(hash_extract_if)]
 // TODO: This is to disable a warning in threei's reversible enum definition.
 // I'd like to revisit that clippy warning later and see if we want to handle
 // it differently

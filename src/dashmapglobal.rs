@@ -276,12 +276,25 @@ pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
 
     // Create this hashmap through an lambda that checks should_cloexec...
     // See: https://doc.rust-lang.org/std/collections/struct.HashMap.html#method.extract_if
-
-    FDTABLE
+/*    FDTABLE
         .get_mut(&cageid)
         .unwrap()
         .extract_if(|_k, v| v.should_cloexec)
-        .collect()
+        .collect()*/
+
+    let mut thiscagefdtable = FDTABLE.get_mut(&cageid).unwrap();
+
+    let mut with_cloexec_hm:HashMap<u64,FDTableEntry> = HashMap::new();
+    for (k,v) in thiscagefdtable.clone().iter() {
+        if v.should_cloexec {
+            with_cloexec_hm.insert(*k,*v);
+            thiscagefdtable.remove(&k);
+        }
+
+    }
+
+    //... return the items remaining...
+    with_cloexec_hm
 }
 
 // Returns the HashMap returns a copy of the fdtable for a cage.  Useful 
