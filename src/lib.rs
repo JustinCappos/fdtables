@@ -221,7 +221,7 @@ mod tests {
 
     use lazy_static::lazy_static;
 
-    use std::sync::Mutex;
+    use std::sync::{Mutex, MutexGuard};
 
     use std::thread;
 
@@ -238,6 +238,10 @@ mod tests {
 
     // Import the symbols, etc. in this file...
     use super::*;
+
+    fn do_panic(_: u64) {
+        panic!("do_panic!");
+    }
 
     #[test]
     // Basic test to ensure that I can get a virtual fd for a real fd and
@@ -742,5 +746,134 @@ mod tests {
         });
 
         let _ = set_cloexec(threei::INVALID_CAGEID, 10, true);
+    }
+
+    #[test]
+    #[should_panic]
+    // Let's check that our callback for close is working correctly by having
+    // it panic
+    fn test_intermediate_handler() {
+        // Get the guard in a way that if we unpoison it, we don't end up
+        // with multiple runners...
+        let mut _thelock: MutexGuard<bool>;
+
+        loop {
+            match TESTMUTEX.lock() {
+                Err(_) => {
+                    TESTMUTEX.clear_poison();
+                }
+                Ok(val) => {
+                    _thelock = val;
+                    break;
+                }
+            }
+        }
+
+        refresh();
+
+        const REALFD: u64 = 132;
+        // I'm using unwrap_or because I don't want a panic here to be
+        // considered passing the test
+        let fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 100).unwrap_or(1);
+        let _fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 100).unwrap_or(1);
+
+        register_close_handlers(do_panic, NULL_FUNC, NULL_FUNC);
+
+        // should panic here...
+        close_virtualfd(threei::TESTING_CAGEID, fd1).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    // Check final_handler
+    fn test_final_handler() {
+        // Get the guard in a way that if we unpoison it, we don't end up
+        // with multiple runners...
+        let mut _thelock: MutexGuard<bool>;
+
+        loop {
+            match TESTMUTEX.lock() {
+                Err(_) => {
+                    TESTMUTEX.clear_poison();
+                }
+                Ok(val) => {
+                    _thelock = val;
+                    break;
+                }
+            }
+        }
+        refresh();
+
+        const REALFD: u64 = 109;
+        // I'm using unwrap_or because I don't want a panic here to be
+        // considered passing the test
+        let fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 100).unwrap_or(1);
+
+        register_close_handlers(NULL_FUNC, do_panic, NULL_FUNC);
+
+        // should panic here...
+        close_virtualfd(threei::TESTING_CAGEID, fd1).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    // Let's check that our callback for close is working correctly by having
+    // it panic
+    fn test_unreal_handler() {
+        let mut _thelock: MutexGuard<bool>;
+
+        loop {
+            match TESTMUTEX.lock() {
+                Err(_) => {
+                    TESTMUTEX.clear_poison();
+                }
+                Ok(val) => {
+                    _thelock = val;
+                    break;
+                }
+            }
+        }
+        refresh();
+
+        // I'm using unwrap_or because I don't want a panic here to be
+        // considered passing the test
+        let fd1 =
+            get_unused_virtual_fd(threei::TESTING_CAGEID, NO_REAL_FD, false, 100).unwrap_or(1);
+
+        register_close_handlers(NULL_FUNC, NULL_FUNC, do_panic);
+
+        // should panic here...
+        close_virtualfd(threei::TESTING_CAGEID, fd1).unwrap();
+    }
+
+    #[test]
+    // No panics.  Just call a function...
+    fn test_close_handlers() {
+        let mut _thelock: MutexGuard<bool>;
+
+        loop {
+            match TESTMUTEX.lock() {
+                Err(_) => {
+                    TESTMUTEX.clear_poison();
+                }
+                Ok(val) => {
+                    _thelock = val;
+                    break;
+                }
+            }
+        }
+        refresh();
+
+        // I'm using unwrap_or because I don't want a panic here to be
+        // considered passing the test
+        let fd1 =
+            get_unused_virtual_fd(threei::TESTING_CAGEID, NO_REAL_FD, false, 100).unwrap_or(1);
+
+        fn myfunc(_: u64) {}
+
+        register_close_handlers(myfunc, myfunc, myfunc);
+
+        // should panic here...
+        close_virtualfd(threei::TESTING_CAGEID, fd1).unwrap();
     }
 }

@@ -371,14 +371,16 @@ pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(u64,u64),threei::RetVa
     if myfdarray[virtfd as usize].is_some() {
         let therealfd = myfdarray[virtfd as usize].unwrap().realfd;
 
-        // Zero out this entry...
-        myfdarray[virtfd as usize] = None;
         if therealfd == NO_REAL_FD {
             // Let their code know this has been closed...
             let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
             (closehandlers.unreal_handler)(myfdarray[virtfd as usize].unwrap().optionalinfo);
+            // Zero out this entry...
+            myfdarray[virtfd as usize] = None;
             return Ok((NO_REAL_FD,0));
         }
+        // Zero out this entry...
+        myfdarray[virtfd as usize] = None;
         return Ok((therealfd,_decrement_realfd(therealfd)));
     }
     Err(threei::Errno::EBADFD as u64)
@@ -422,6 +424,14 @@ pub fn register_close_handlers(intermediate_handler: fn(u64), final_handler: fn(
 pub fn refresh() {
     FDTABLE.clear();
     FDTABLE.insert(threei::TESTING_CAGEID,vec!(Option::None;FD_PER_PROCESS_MAX as usize));
+    let mut closehandlers = CLOSEHANDLERTABLE.lock().unwrap_or_else(|e| {
+        CLOSEHANDLERTABLE.clear_poison();
+        e.into_inner()
+    });
+    closehandlers.intermediate_handler = NULL_FUNC;
+    closehandlers.final_handler = NULL_FUNC;
+    closehandlers.unreal_handler = NULL_FUNC;
+    // Note, it doesn't seem that Dashmaps can be poisoned...
 }
 
 // Helpers to track the count of times each realfd is used

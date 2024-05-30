@@ -520,6 +520,17 @@ pub fn refresh() {
     });
     fdtable.clear();
     fdtable.insert(threei::TESTING_CAGEID, HashMap::new());
+    let mut closehandlers = CLOSEHANDLERTABLE.lock().unwrap_or_else(|e| {
+        CLOSEHANDLERTABLE.clear_poison();
+        e.into_inner()
+    });
+    closehandlers.intermediate_handler = NULL_FUNC;
+    closehandlers.final_handler = NULL_FUNC;
+    closehandlers.unreal_handler = NULL_FUNC;
+    let mut _realfdcount = GLOBALREALFDCOUNT.lock().unwrap_or_else(|e| {
+        GLOBALREALFDCOUNT.clear_poison();
+        e.into_inner()
+    });
 }
 
 // Helpers to track the count of times each realfd is used

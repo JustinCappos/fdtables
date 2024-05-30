@@ -421,6 +421,14 @@ pub fn register_close_handlers(intermediate_handler: fn(u64), final_handler: fn(
 pub fn refresh() {
     FDTABLE.clear();
     FDTABLE.insert(threei::TESTING_CAGEID, HashMap::new());
+    let mut closehandlers = CLOSEHANDLERTABLE.lock().unwrap_or_else(|e| {
+        CLOSEHANDLERTABLE.clear_poison();
+        e.into_inner()
+    });
+    closehandlers.intermediate_handler = NULL_FUNC;
+    closehandlers.final_handler = NULL_FUNC;
+    closehandlers.unreal_handler = NULL_FUNC;
+    // Note, it doesn't seem that Dashmaps can be poisoned...
 }
 
 
