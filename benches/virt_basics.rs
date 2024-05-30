@@ -196,7 +196,6 @@ pub fn run_benchmark(c: &mut Criterion) {
     }
     refresh();
 
-
     // ---------------- MULTI-THREADED TESTS ------------------  //
 
     // -- Multithreaded benchmark 1: 100K translate calls --
@@ -268,7 +267,7 @@ pub fn run_benchmark(c: &mut Criterion) {
                             let thisthreadcount = *threadcount;
 
                             thread_handle_vec.push(thread::spawn(move || {
-                                // Do 1K / threadcount 
+                                // Do 1K / threadcount
                                 for _ in 0..1000 / thisthreadcount {
                                     let fd = get_unused_virtual_fd(
                                         threei::TESTING_CAGEID,
@@ -321,7 +320,7 @@ pub fn run_benchmark(c: &mut Criterion) {
                                         100,
                                     )
                                     .unwrap();
-                                    close_virtualfd(threei::TESTING_CAGEID,fd).unwrap();
+                                    close_virtualfd(threei::TESTING_CAGEID, fd).unwrap();
                                 }
                             }));
                         }

@@ -153,6 +153,30 @@ lazy_static! {
 
 }
 
+// Internal helper to hold the close handlers...
+struct CloseHandlers {
+    intermediate_handler: fn(u64),
+    final_handler: fn(u64),
+    unreal_handler: fn(u64),
+}
+
+pub fn NULL_FUNC(_:u64) { }
+
+lazy_static! {
+    // This holds the user registered handlers they want to have called when
+    // a close occurs.  I did this rather than return messy data structures
+    // from the close, exec, and exit handlers because it seemed cleaner...
+    #[derive(Debug)]
+    static ref CLOSEHANDLERTABLE: Mutex<CloseHandlers> = {
+        let c = CloseHandlers {
+            intermediate_handler:NULL_FUNC,
+            final_handler:NULL_FUNC,
+            unreal_handler:NULL_FUNC,
+        };
+        Mutex::new(c)
+    };
+}
+
 #[doc = include_str!("../docs/translate_virtual_fd.md")]
 pub fn translate_virtual_fd(cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
     // Get the lock on the fdtable...  I'm not handling "poisoned locks" now
@@ -368,6 +392,11 @@ pub fn remove_cage_from_fdtable(cageid: u64) -> HashMap<u64, FDTableEntry> {
         if v.realfd != NO_REAL_FD {
             _decrement_realfd(v.realfd);
         }
+        else {
+            // Let their code know this has been closed...
+            let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
+            (closehandlers.unreal_handler)(v.optionalinfo);
+        }
     }
 
 
@@ -402,7 +431,15 @@ pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
     for (k,v) in thiscagefdtable.drain() {
         if v.should_cloexec {
             with_cloexec_hm.insert(k,v);
-            _decrement_realfd(v.realfd);
+            if v.realfd == NO_REAL_FD {
+                // Let their code know this has been closed...
+                let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
+                (closehandlers.unreal_handler)(v.optionalinfo);
+            }
+            else {
+                // Let the helper tell the user and decrement the count
+                _decrement_realfd(v.realfd);
+            }
         }
         else{
             without_cloexec_hm.insert(k,v);
@@ -431,6 +468,9 @@ pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(u64,u64),threei::RetVa
     match thiscagesfdtable.remove(&virtfd) {
         Some(entry) =>
             if entry.realfd == NO_REAL_FD {
+                // Let their code know this has been closed...
+                let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
+                (closehandlers.unreal_handler)(entry.optionalinfo);
                 Ok((NO_REAL_FD,0))
             }
             else {
@@ -454,6 +494,17 @@ pub fn return_fdtable_copy(cageid: u64) -> HashMap<u64, FDTableEntry> {
     fdtable.get(&cageid).unwrap().clone()
 }
 
+// Register a series of helpers to be called for close.  Can be called
+// multiple times to override the older helpers.
+#[doc = include_str!("../docs/register_close_handlers.md")]
+pub fn register_close_handlers(intermediate_handler: fn(u64), final_handler: fn(u64), unreal_handler: fn(u64)) {
+    // Unlock the table and set the handlers...
+    let mut closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
+    closehandlers.intermediate_handler = intermediate_handler;
+    closehandlers.final_handler = final_handler;
+    closehandlers.unreal_handler = unreal_handler;
+}
+
 // Helper to initialize / empty out state so we can test with a clean system...
 // only used when testing...
 //
@@ -474,16 +525,20 @@ pub fn refresh() {
 fn _decrement_realfd(realfd:u64) -> u64 {
     // Do nothing if it's not a realfd...
     if realfd == NO_REAL_FD {
-        return 0
+        panic!("Called _decrement_realfd with NO_REAL_FD");
     }
 
     // Get this table's lock...
     let mut realfdcount = GLOBALREALFDCOUNT.lock().unwrap();
 
-
     let newcount:u64 = realfdcount.get(&realfd).unwrap() - 1;
+    let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
     if newcount > 0 {
+        (closehandlers.intermediate_handler)(realfd);
         realfdcount.insert(realfd,newcount);
+    }
+    else {
+        (closehandlers.final_handler)(realfd);
     }
     newcount
 }
