@@ -81,7 +81,8 @@ struct CloseHandlers {
     unreal_handler: fn(u64),
 }
 
-
+// Seems sort of like a constant...  I'm not sure if this is bad form or not...
+#[allow(non_snake_case)]
 pub fn NULL_FUNC(_:u64) { }
 
 lazy_static! {

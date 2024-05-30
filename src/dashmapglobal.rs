@@ -10,6 +10,8 @@ use lazy_static::lazy_static;
 
 use std::collections::HashMap;
 
+use std::sync::Mutex;
+
 // This is a slightly more advanced fdtables library using DashMap.  
 // The purpose is to allow a cage to have a set of virtual fds which is 
 // translated into real fds.
@@ -73,13 +75,39 @@ lazy_static! {
 }
 
 lazy_static! {
-  // This is needed for close and similar functionality.  I need track the
-  // number of times a realfd is open
-  #[derive(Debug)]
-  static ref REALFDCOUNT: DashMap<u64, u64> = {
-    DashMap::new()
-  };
+    // This is needed for close and similar functionality.  I need track the
+    // number of times a realfd is open
+    #[derive(Debug)]
+    static ref REALFDCOUNT: DashMap<u64, u64> = {
+        DashMap::new()
+    };
 
+}
+
+// Internal helper to hold the close handlers...
+struct CloseHandlers {
+    intermediate_handler: fn(u64),
+    final_handler: fn(u64),
+    unreal_handler: fn(u64),
+}
+
+// Seems sort of like a constant...  I'm not sure if this is bad form or not...
+#[allow(non_snake_case)]
+pub fn NULL_FUNC(_:u64) { }
+
+lazy_static! {
+    // This holds the user registered handlers they want to have called when
+    // a close occurs.  I did this rather than return messy data structures
+    // from the close, exec, and exit handlers because it seemed cleaner...
+    #[derive(Debug)]
+    static ref CLOSEHANDLERTABLE: Mutex<CloseHandlers> = {
+        let c = CloseHandlers {
+            intermediate_handler:NULL_FUNC,
+            final_handler:NULL_FUNC,
+            unreal_handler:NULL_FUNC,
+        };
+        Mutex::new(c)
+    };
 }
 
 #[doc = include_str!("../docs/translate_virtual_fd.md")]
@@ -286,6 +314,11 @@ pub fn remove_cage_from_fdtable(cageid: u64) -> HashMap<u64, FDTableEntry> {
         if v.realfd != NO_REAL_FD {
             _decrement_realfd(v.realfd);
         }
+        else {
+            // Let their code know this has been closed...
+            let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
+            (closehandlers.unreal_handler)(v.optionalinfo);
+        }
     }
 
     FDTABLE.remove(&cageid).unwrap().1
@@ -314,7 +347,15 @@ pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
     for (k,v) in thiscagefdtable.clone().iter() {
         if v.should_cloexec {
             with_cloexec_hm.insert(*k,*v);
-            _decrement_realfd(v.realfd);
+            if v.realfd == NO_REAL_FD {
+                // Let their code know this has been closed...
+                let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
+                (closehandlers.unreal_handler)(v.optionalinfo);
+            }
+            else {
+                // Let the helper tell the user and decrement the count
+                _decrement_realfd(v.realfd);
+            }
             thiscagefdtable.remove(k);
         }
 
@@ -338,6 +379,9 @@ pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(u64,u64),threei::RetVa
     match thiscagesfdtable.remove(&virtfd) {
         Some(entry) => 
             if entry.realfd == NO_REAL_FD {
+                // Let their code know this has been closed...
+                let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
+                (closehandlers.unreal_handler)(entry.optionalinfo);
                 Ok((NO_REAL_FD,0))
             }
             else {
@@ -360,6 +404,17 @@ pub fn return_fdtable_copy(cageid: u64) -> HashMap<u64, FDTableEntry> {
     FDTABLE.get(&cageid).unwrap().clone()
 }
 
+// Register a series of helpers to be called for close.  Can be called
+// multiple times to override the older helpers.
+#[doc = include_str!("../docs/register_close_handlers.md")]
+pub fn register_close_handlers(intermediate_handler: fn(u64), final_handler: fn(u64), unreal_handler: fn(u64)) {
+    // Unlock the table and set the handlers...
+    let mut closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
+    closehandlers.intermediate_handler = intermediate_handler;
+    closehandlers.final_handler = final_handler;
+    closehandlers.unreal_handler = unreal_handler;
+}
+
 #[doc(hidden)]
 // Helper to initialize / empty out state so we can test with a clean system...
 // This is only used in tests, thus is hidden...
@@ -373,12 +428,17 @@ pub fn refresh() {
 #[doc(hidden)]
 fn _decrement_realfd(realfd:u64) -> u64 {
     if realfd == NO_REAL_FD {
-        return 0
+        panic!("Called _decrement_realfd with NO_REAL_FD");
     }
 
     let newcount:u64 = REALFDCOUNT.get(&realfd).unwrap().value() - 1;
+    let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
     if newcount > 0 {
+        (closehandlers.intermediate_handler)(realfd);
         REALFDCOUNT.insert(realfd,newcount);
+    }
+    else {
+        (closehandlers.final_handler)(realfd);
     }
     newcount
 }
