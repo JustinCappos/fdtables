@@ -428,7 +428,7 @@ pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(u64,u64),threei::RetVa
 
     let thiscagesfdtable = fdtable.get_mut(&cageid).unwrap();
 
-    return match thiscagesfdtable.remove(&virtfd) {
+    match thiscagesfdtable.remove(&virtfd) {
         Some(entry) =>
             if entry.realfd == NO_REAL_FD {
                 Ok((NO_REAL_FD,0))

@@ -196,7 +196,6 @@ pub fn run_benchmark(c: &mut Criterion) {
     }
     refresh();
 
-    refresh();
 
     // ---------------- MULTI-THREADED TESTS ------------------  //
 
@@ -269,7 +268,7 @@ pub fn run_benchmark(c: &mut Criterion) {
                             let thisthreadcount = *threadcount;
 
                             thread_handle_vec.push(thread::spawn(move || {
-                                // Do 1K / threadcount of 10 requests each.  100K total
+                                // Do 1K / threadcount 
                                 for _ in 0..1000 / thisthreadcount {
                                     let fd = get_unused_virtual_fd(
                                         threei::TESTING_CAGEID,
@@ -286,6 +285,49 @@ pub fn run_benchmark(c: &mut Criterion) {
                             handle.join().unwrap();
                         }
                         refresh();
+                    }
+                })
+            },
+        );
+    }
+
+    // -- Multithreaded benchmark 3: get / close interleaved --
+
+    // I will always do 100K requests (split amongst some number of threads)
+
+    for threadcount in [1, 2, 4, 8, 16].iter() {
+        group.bench_with_input(
+            BenchmarkId::new(
+                format!("{}/[mt:{}] get_close (10K)", ALGONAME, threadcount),
+                threadcount,
+            ),
+            threadcount,
+            |b, threadcount| {
+                b.iter({
+                    || {
+                        let mut thread_handle_vec: Vec<thread::JoinHandle<()>> = Vec::new();
+                        for _numthreads in 0..*threadcount {
+                            // Need to borrow so the lifetime can live outside
+                            // the thread's closure
+                            let thisthreadcount = *threadcount;
+
+                            thread_handle_vec.push(thread::spawn(move || {
+                                // Do 100K / threadcount each
+                                for _ in 0..10000 / thisthreadcount {
+                                    let fd = get_unused_virtual_fd(
+                                        threei::TESTING_CAGEID,
+                                        10,
+                                        true,
+                                        100,
+                                    )
+                                    .unwrap();
+                                    close_virtualfd(threei::TESTING_CAGEID,fd).unwrap();
+                                }
+                            }));
+                        }
+                        for handle in thread_handle_vec {
+                            handle.join().unwrap();
+                        }
                     }
                 })
             },

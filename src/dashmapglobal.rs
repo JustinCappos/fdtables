@@ -315,7 +315,7 @@ pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
         if v.should_cloexec {
             with_cloexec_hm.insert(*k,*v);
             _decrement_realfd(v.realfd);
-            thiscagefdtable.remove(&k);
+            thiscagefdtable.remove(k);
         }
 
     }
@@ -335,7 +335,7 @@ pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(u64,u64),threei::RetVa
 
     let mut thiscagesfdtable = FDTABLE.get_mut(&cageid).unwrap();
 
-    return match thiscagesfdtable.remove(&virtfd) {
+    match thiscagesfdtable.remove(&virtfd) {
         Some(entry) => 
             if entry.realfd == NO_REAL_FD {
                 Ok((NO_REAL_FD,0))

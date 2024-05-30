@@ -246,9 +246,9 @@ pub fn copy_fdtable_for_cage(srccageid: u64, newcageid: u64) -> Result<(), three
     let hmcopy = FDTABLE.get(&srccageid).unwrap().clone();
 
     // Increment copied items
-    for item in 0..FD_PER_PROCESS_MAX as usize {
-        if hmcopy[item].is_some() {
-            let thisrealfd = hmcopy[item].unwrap().realfd;
+    for entry in FDTABLE.get(&srccageid).unwrap().iter() {
+        if entry.is_some() {
+            let thisrealfd = entry.unwrap().realfd;
             if thisrealfd != NO_REAL_FD {
                 _increment_realfd(thisrealfd);
             }
