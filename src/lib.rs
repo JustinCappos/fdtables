@@ -18,9 +18,6 @@
 //! not fdtables::algorithmname::XXX, as the latter will not be stable over
 //! time.
 
-// I likely should remove this...  I only use it to make empty_fds_for_exec
-// slightly more efficient in some implementations...
-//#![feature(hash_extract_if)]
 // TODO: This is to disable a warning in threei's reversible enum definition.
 // I'd like to revisit that clippy warning later and see if we want to handle
 // it differently
@@ -165,6 +162,11 @@
 //          returns a copy of the fdtable for a cage.  Useful helper function
 //          for a caller that needs to examine the table.  Likely could be
 //          more efficient by letting the caller borrow this...
+//
+//      close_virtualfd(cageid: u64) -> Result<(realfd, stillopencount),EBADF>
+//          removes an entry from the virtual fd table.  It returns the
+//          realfd and a count of times that this realfd is used across
+//          all other cages.  Mostly used for close...
 //
 //
 // In situations where this will be used by a grate, a few other calls are
@@ -463,6 +465,80 @@ mod tests {
             500,
             get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd1).unwrap()
         );
+    }
+
+    #[test]
+    // Do close_virtualfd(...) testing...
+    fn test_close_virtualfd() {
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
+        refresh();
+
+        const REALFD: u64 = 57;
+
+        const ANOTHERREALFD: u64 = 101;
+
+        const SPECIFICVIRTUALFD: u64 = 15;
+
+        // use the same realfd a few times in different ways...
+        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
+        get_specific_virtual_fd(threei::TESTING_CAGEID, SPECIFICVIRTUALFD, REALFD, false, 10)
+            .unwrap();
+        let _ = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, true, 10).unwrap();
+        // and a different realfd
+        let _my_virt_fd3 =
+            get_unused_virtual_fd(threei::TESTING_CAGEID, ANOTHERREALFD, false, 10).unwrap();
+
+        // let's close one (should have two left...)
+        let (realfd, count) = close_virtualfd(threei::TESTING_CAGEID, my_virt_fd).unwrap();
+        assert_eq!(realfd, REALFD);
+        assert_eq!(count, 2);
+
+        // Let's fork (to double the count)!
+        copy_fdtable_for_cage(threei::TESTING_CAGEID, threei::TESTING_CAGEID7).unwrap();
+
+        // Get and close this to check the count...
+        let check_my_virt_fd =
+            get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
+        assert_eq!(
+            4,
+            close_virtualfd(threei::TESTING_CAGEID, check_my_virt_fd)
+                .unwrap()
+                .1
+        );
+
+        // let's simulate exec, which should close one of these...
+        empty_fds_for_exec(threei::TESTING_CAGEID7);
+
+        // Get and close this to check the count...
+        let check_my_virt_fd =
+            get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
+        assert_eq!(
+            3,
+            close_virtualfd(threei::TESTING_CAGEID, check_my_virt_fd)
+                .unwrap()
+                .1
+        );
+
+        // Let's simulate exit on the initial cage, to close two of them...
+        remove_cage_from_fdtable(threei::TESTING_CAGEID);
+
+        // Get and close this to check the count...
+        let check_my_virt_fd =
+            get_unused_virtual_fd(threei::TESTING_CAGEID7, REALFD, false, 10).unwrap();
+        assert_eq!(
+            1,
+            close_virtualfd(threei::TESTING_CAGEID7, check_my_virt_fd)
+                .unwrap()
+                .1
+        );
+
+        // Now this is the last one!
+        let (realfd, count) = close_virtualfd(threei::TESTING_CAGEID7, SPECIFICVIRTUALFD).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(realfd, REALFD);
     }
 
     #[test]

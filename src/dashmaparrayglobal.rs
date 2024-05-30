@@ -51,8 +51,6 @@ pub struct FDTableEntry {
 lazy_static! {
 
   #[derive(Debug)]
-  // Usually I would care more about this, but I'm keeping this close to
-  // the vanilla implementation...
   static ref FDTABLE: DashMap<u64, [Option<FDTableEntry>;FD_PER_PROCESS_MAX as usize]> = {
     let m = DashMap::new();
     // Insert a cage so that I have something to fork / test later, if need
@@ -63,6 +61,17 @@ lazy_static! {
     m
   };
 }
+
+lazy_static! {
+  // This is needed for close and similar functionality.  I need track the
+  // number of times a realfd is open
+  #[derive(Debug)]
+  static ref REALFDCOUNT: DashMap<u64, u64> = {
+    DashMap::new()
+  };
+
+}
+
 
 #[doc = include_str!("../docs/translate_virtual_fd.md")]
 pub fn translate_virtual_fd(cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
@@ -116,6 +125,7 @@ pub fn get_unused_virtual_fd(
         if myfdarray[fdcandidate as usize].is_none() {
             // I just checked.  Should not be there...
             myfdarray[fdcandidate as usize] = Some(myentry);
+            _increment_realfd(realfd);
             return Ok(fdcandidate);
         }
     }
@@ -164,6 +174,7 @@ pub fn get_specific_virtual_fd(
         Err(threei::Errno::ELIND as u64)
     } else {
         FDTABLE.get_mut(&cageid).unwrap()[requested_virtualfd as usize] = Some(myentry);
+        _increment_realfd(realfd);
         Ok(())
     }
 }
@@ -232,7 +243,19 @@ pub fn copy_fdtable_for_cage(srccageid: u64, newcageid: u64) -> Result<(), three
     }
 
     // Insert a copy and ensure it didn't exist...
+    // BUG: Is this a copy!?!  Am I passing a ref to the same thing!?!?!?
     let hmcopy = *FDTABLE.get(&srccageid).unwrap();
+
+    // Increment copied items
+    for item in 0..FD_PER_PROCESS_MAX as usize {
+        if hmcopy[item].is_some() {
+            let thisrealfd = hmcopy[item].unwrap().realfd;
+            if thisrealfd != NO_REAL_FD {
+                _increment_realfd(thisrealfd);
+            }
+        }
+    }
+
     assert!(FDTABLE.insert(newcageid, hmcopy).is_none());
     Ok(())
     // I'm not going to bother to check the number of fds used overall yet...
@@ -253,6 +276,10 @@ pub fn remove_cage_from_fdtable(cageid: u64) -> HashMap<u64, FDTableEntry> {
     let myfdarray = FDTABLE.get(&cageid).unwrap();
     for item in 0..FD_PER_PROCESS_MAX as usize {
         if myfdarray[item].is_some() {
+            let therealfd = myfdarray[item].unwrap().realfd;
+            if therealfd != NO_REAL_FD {
+                _decrement_realfd(therealfd);
+            }
             myhashmap.insert(item as u64,myfdarray[item].unwrap());
         }
     }
@@ -280,6 +307,10 @@ pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
     let mut myfdarray = FDTABLE.get_mut(&cageid).unwrap();
     for item in 0..FD_PER_PROCESS_MAX as usize {
         if myfdarray[item].is_some() && myfdarray[item].unwrap().should_cloexec {
+            let therealfd = myfdarray[item].unwrap().realfd;
+            if therealfd != NO_REAL_FD {
+                _decrement_realfd(therealfd);
+            }
             myhashmap.insert(item as u64,myfdarray[item].unwrap());
             myfdarray[item] = None;
         }
@@ -288,6 +319,33 @@ pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
     myhashmap
 
 }
+
+
+
+// Helper for close.  Returns a tuple of realfd, number of references
+// remaining.
+#[doc = include_str!("../docs/close_virtualfd.md")]
+pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(u64,u64),threei::RetVal> {
+    if !FDTABLE.contains_key(&cageid) {
+        panic!("Unknown cageid in fdtable access");
+    }
+
+    let mut myfdarray = FDTABLE.get_mut(&cageid).unwrap();
+
+
+    if myfdarray[virtfd as usize].is_some() {
+        let therealfd = myfdarray[virtfd as usize].unwrap().realfd;
+
+        // Zero out this entry...
+        myfdarray[virtfd as usize] = None;
+        if therealfd == NO_REAL_FD {
+            return Ok((NO_REAL_FD,0));
+        }
+        return Ok((therealfd,_decrement_realfd(therealfd)));
+    }
+    Err(threei::Errno::EBADFD as u64)
+}
+
 
 // Returns the HashMap returns a copy of the fdtable for a cage.  Useful 
 // helper function for a caller that needs to examine the table.  Likely could
@@ -317,5 +375,39 @@ pub fn return_fdtable_copy(cageid: u64) -> HashMap<u64, FDTableEntry> {
 pub fn refresh() {
     FDTABLE.clear();
     FDTABLE.insert(threei::TESTING_CAGEID,[Option::None;FD_PER_PROCESS_MAX as usize]);
+}
+
+// Helpers to track the count of times each realfd is used
+#[doc(hidden)]
+fn _decrement_realfd(realfd:u64) -> u64 {
+    if realfd == NO_REAL_FD {
+        return 0
+    }
+
+    let newcount:u64 = REALFDCOUNT.get(&realfd).unwrap().value() - 1;
+    if newcount > 0 {
+        REALFDCOUNT.insert(realfd,newcount);
+    }
+    newcount
+}
+
+// Helpers to track the count of times each realfd is used
+#[doc(hidden)]
+fn _increment_realfd(realfd:u64) -> u64 {
+    if realfd == NO_REAL_FD {
+        return 0
+    }
+
+    // Get a mutable reference to the entry so we can update it.
+    return match REALFDCOUNT.get_mut(&realfd) {
+        Some(mut count) => {
+            *count += 1;
+            *count
+        }
+        None => {
+            REALFDCOUNT.insert(realfd, 1);
+            1
+        }
+    }
 }
 

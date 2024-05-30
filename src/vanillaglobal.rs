@@ -143,6 +143,16 @@ lazy_static! {
   };
 }
 
+lazy_static! {
+  // This is needed for close and similar functionality.  I need track the
+  // number of times a realfd is open
+  #[derive(Debug)]
+  static ref GLOBALREALFDCOUNT: Mutex<HashMap<u64, u64>> = {
+    Mutex::new(HashMap::new())
+  };
+
+}
+
 #[doc = include_str!("../docs/translate_virtual_fd.md")]
 pub fn translate_virtual_fd(cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
     // Get the lock on the fdtable...  I'm not handling "poisoned locks" now
@@ -198,6 +208,7 @@ pub fn get_unused_virtual_fd(
         // it in).
         if let std::collections::hash_map::Entry::Vacant(e) = myfdmap.entry(fdcandidate) {
             e.insert(myentry);
+            _increment_realfd(realfd);
             return Ok(fdcandidate);
         }
     }
@@ -252,6 +263,7 @@ pub fn get_specific_virtual_fd(
             .get_mut(&cageid)
             .unwrap()
             .insert(requested_virtualfd, myentry);
+        _increment_realfd(realfd);
         Ok(())
     }
 }
@@ -326,6 +338,15 @@ pub fn copy_fdtable_for_cage(srccageid: u64, newcageid: u64) -> Result<(), three
 
     // Insert a copy and ensure it didn't exist...
     let hmcopy = fdtable.get(&srccageid).unwrap().clone();
+
+    // increment the reference to items in the fdtable appropriately...
+    for v in fdtable.get(&srccageid).unwrap().values() {
+        if v.realfd != NO_REAL_FD {
+            _increment_realfd(v.realfd);
+        }
+    }
+
+    // insert the new table...
     assert!(fdtable.insert(newcageid, hmcopy).is_none());
     Ok(())
     // I'm not going to bother to check the number of fds used overall yet...
@@ -341,6 +362,14 @@ pub fn remove_cage_from_fdtable(cageid: u64) -> HashMap<u64, FDTableEntry> {
     if !fdtable.contains_key(&cageid) {
         panic!("Unknown cageid in fdtable access");
     }
+
+    // decrement the reference to items in the fdtable appropriately...
+    for v in fdtable.get(&cageid).unwrap().values() {
+        if v.realfd != NO_REAL_FD {
+            _decrement_realfd(v.realfd);
+        }
+    }
+
 
     fdtable.remove(&cageid).unwrap()
 }
@@ -373,6 +402,7 @@ pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
     for (k,v) in thiscagefdtable.drain() {
         if v.should_cloexec {
             with_cloexec_hm.insert(k,v);
+            _decrement_realfd(v.realfd);
         }
         else{
             without_cloexec_hm.insert(k,v);
@@ -384,6 +414,30 @@ pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
 
     //... and return the rest...
     with_cloexec_hm
+}
+
+// Helper for close.  Returns a tuple of realfd, number of references
+// remaining.
+#[doc = include_str!("../docs/close_virtualfd.md")]
+pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(u64,u64),threei::RetVal> {
+    let mut fdtable = GLOBALFDTABLE.lock().unwrap();
+
+    if !fdtable.contains_key(&cageid) {
+        panic!("Unknown cageid in fdtable access");
+    }
+
+    let thiscagesfdtable = fdtable.get_mut(&cageid).unwrap();
+
+    return match thiscagesfdtable.remove(&virtfd) {
+        Some(entry) =>
+            if entry.realfd == NO_REAL_FD {
+                Ok((NO_REAL_FD,0))
+            }
+            else {
+                Ok((entry.realfd, _decrement_realfd(entry.realfd)))
+            }
+        None => Err(threei::Errno::EBADFD as u64),
+    }
 }
 
 // returns a copy of the fdtable for a cage.  Useful helper function for a
@@ -413,4 +467,46 @@ pub fn refresh() {
     });
     fdtable.clear();
     fdtable.insert(threei::TESTING_CAGEID, HashMap::new());
+}
+
+// Helpers to track the count of times each realfd is used
+#[doc(hidden)]
+fn _decrement_realfd(realfd:u64) -> u64 {
+    // Do nothing if it's not a realfd...
+    if realfd == NO_REAL_FD {
+        return 0
+    }
+
+    // Get this table's lock...
+    let mut realfdcount = GLOBALREALFDCOUNT.lock().unwrap();
+
+
+    let newcount:u64 = realfdcount.get(&realfd).unwrap() - 1;
+    if newcount > 0 {
+        realfdcount.insert(realfd,newcount);
+    }
+    newcount
+}
+
+// Helpers to track the count of times each realfd is used
+#[doc(hidden)]
+fn _increment_realfd(realfd:u64) -> u64 {
+    if realfd == NO_REAL_FD {
+        return 0
+    }
+
+    // Get this table's lock...
+    let mut realfdcount = GLOBALREALFDCOUNT.lock().unwrap();
+
+    // Get a mutable reference to the entry so we can update it.
+    return match realfdcount.get_mut(&realfd) {
+        Some(count) => {
+            *count += 1;
+            *count
+        }
+        None => {
+            realfdcount.insert(realfd, 1);
+            1
+        }
+    }
 }
