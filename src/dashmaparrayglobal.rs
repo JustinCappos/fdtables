@@ -86,7 +86,8 @@ pub fn NULL_FUNC(_:u64) { }
 
 lazy_static! {
     // This holds the user registered handlers they want to have called when
-    // a close occurs.
+    // a close occurs.  I did this rather than return messy data structures
+    // from the close, exec, and exit handlers because it seemed cleaner...
     #[derive(Debug)]
     static ref CLOSEHANDLERTABLE: Mutex<CloseHandlers> = {
         let c = CloseHandlers {
@@ -408,7 +409,7 @@ pub fn return_fdtable_copy(cageid: u64) -> HashMap<u64, FDTableEntry> {
 }
 
 // Register a series of helpers to be called for close.  Can be called
-// multiple times to override the older helpers.  
+// multiple times to override the older helpers.
 #[doc = include_str!("../docs/register_close_handlers.md")]
 pub fn register_close_handlers(intermediate_handler: fn(u64), final_handler: fn(u64), unreal_handler: fn(u64)) {
     // Unlock the table and set the handlers...
