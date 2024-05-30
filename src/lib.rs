@@ -180,9 +180,8 @@
 //
 //
 //
-// [*] This isn't possible because fork causes the same fd in the parent and
-// child to have separate file pointers (e.g., read / write to separate
-// locations in the file).
+// [*] This isn't possible because the parent and child can close, open, dup,
+// etc. their file descriptors independently.
 //
 // [**] This is only the 'real' fd from the standpoint of the user of this
 // library.  If another part of the system below it, such as another grate or
