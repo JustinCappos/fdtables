@@ -8,81 +8,7 @@ use std::collections::HashMap;
 
 // This is a basic fdtables library.  The purpose is to allow a cage to have
 // a set of virtual fds which is translated into real fds.
-//
-// For example, suppose a cage with cageid A, wants to open a file.  That open
-// operation needs to return a file descriptor to the cage.  Rather than have
-// each cage have the actual underlying numeric fd[*], each cage has its own
-// virtual fd numbers.  So cageid A's fd 6 will potentially be different from
-// cageid B's fd 6.  When a call from cageid A or B is made, this will need to
-// be translated from that virtual fd into the read fd[**].
-//
-// One other complexity deals with the CLOEXEC flag.  If this is set on a file
-// descriptor, then when exec is called, it must be closed.  This library
-// provides a few functions to simplify this process.
-//
-// To make this work, this library provides the following funtionality:
-//
-//      translate_virtual_fd(cageid, virtualfd) -> Result<realfd,EBADFD>
-//
-//      get_unused_virtual_fd(cageid,realfd,is_cloexec,optionalinfo) -> Result<virtualfd, EMFILE>
-//
-//      set_cloexec(cageid,virtualfd,is_cloexec) -> Result<(), EBADFD>
-//
-//      get_specific_virtual_fd(cageid,virtualfd,realfd,is_cloexec,optionalinfo) -> Result<(), (ELIND|EBADF)>
-//          This is mostly used for dup2/3.  I'm assuming the caller got the
-//          entry already and wants to put it in a location.  Returns ELIND
-//          if the entry is occupied and EBADF if out of range...
-//
-//      copy_fdtable_for_cage(srccageid, newcageid) -> Result<(), ENFILE>
-//          This is effectively just making a copy of a specific cage's
-//          fdtable, for use in fork()
-//
-//      remove_cage_from_fdtable(cageid) -> HashMap<virt_fd:u64,FDTableEntry>
-//          This is mostly used in handling exit, etc.  Returns the HashMap
-//          for the cage.
-//
-//      empty_fds_for_exec(cageid) -> HashMap<virt_fd:u64,FDTableEntry>
-//          This handles exec by removing all of FDTableEntries with cloexec
-//          set.  Those are returned in a HashMap
-//
-//
-// There are other helper functions meant to be used when this is imported
-// as a grate library::
-//
-//      get_optionalinfo(cageid,virtualfd) -> Result<optionalinfo, EBADFD>
-//      set_optionalinfo(cageid,virtualfd,optionalinfo) -> Result<(), EBADFD>
-//          The above two are useful if you want to track other things like
-//          an id for other in-memory data structures
-//
-// In situations where this will be used by a grate, a few other calls are
-// particularly useful:
-//
-//      threeii::reserve_fd(cageid, Option<fd>) -> Result<fd, EMFILE / ENFILE>
-//          Used to have the grate, etc. beneath you reserve (or provide) a fd.
-//          This is useful for situatiosn where you want to have most fds
-//          handled elsewhere, but need to be able to acquire a few for your
-//          purposes (like implementing in-memory pipes, etc.)
-//
-// [*] This isn't possible because fork causes the same fd in the parent and
-// child to have separate file pointers (e.g., read / write to separate
-// locations in the file).
-//
-// [**] This is only the 'real' fd from the standpoint of the user of this
-// library.  If another part of the system below it, such as another grate or
-// the microvisor, is using this library, it will get translated again.
-//
 
-// This library is likely the place in the system where we should consider
-// putting in place limits on file descriptors.  Linux does this through two
-// error codes, one for a per-process limit and the other for an overall system
-// limit.  My thinking currently is that both will be configurable values in
-// the library.
-//
-//       EMFILE The per-process limit on the number of open file
-//              descriptors has been reached.
-//
-//       ENFILE The system-wide limit on the total number of open files
-//              has been reached.
 
 // Get constants about the fd table sizes, etc.
 pub use super::commonconstants::*;
@@ -382,7 +308,7 @@ pub fn copy_fdtable_for_cage(srccageid: u64, newcageid: u64) -> Result<(), three
 // This is mostly used in handling exit, etc.  Returns the HashMap
 // for the cage.
 #[doc = include_str!("../docs/remove_cage_from_fdtable.md")]
-pub fn remove_cage_from_fdtable(cageid: u64) -> HashMap<u64, FDTableEntry> {
+pub fn remove_cage_from_fdtable(cageid: u64) {
     let mut fdtable = GLOBALFDTABLE.lock().unwrap();
 
     if !fdtable.contains_key(&cageid) {
@@ -402,13 +328,13 @@ pub fn remove_cage_from_fdtable(cageid: u64) -> HashMap<u64, FDTableEntry> {
     }
 
 
-    fdtable.remove(&cageid).unwrap()
+    fdtable.remove(&cageid).unwrap();
 }
 
 // This removes all fds with the should_cloexec flag set.  They are returned
 // in a new hashmap...
 #[doc = include_str!("../docs/empty_fds_for_exec.md")]
-pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
+pub fn empty_fds_for_exec(cageid: u64) {
     let mut fdtable = GLOBALFDTABLE.lock().unwrap();
 
     if !fdtable.contains_key(&cageid) {
@@ -428,11 +354,9 @@ pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
     // nightly function...
     let thiscagefdtable = fdtable.get_mut(&cageid).unwrap();
 
-    let mut with_cloexec_hm:HashMap<u64,FDTableEntry> = HashMap::new();
     let mut without_cloexec_hm:HashMap<u64,FDTableEntry> = HashMap::new();
     for (k,v) in thiscagefdtable.drain() {
         if v.should_cloexec {
-            with_cloexec_hm.insert(k,v);
             if v.realfd == NO_REAL_FD {
                 // Let their code know this has been closed...
                 let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
@@ -451,14 +375,12 @@ pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
     // Put the ones without_cloexec back in the hashmap...
     fdtable.insert(cageid,without_cloexec_hm);
 
-    //... and return the rest...
-    with_cloexec_hm
 }
 
 // Helper for close.  Returns a tuple of realfd, number of references
 // remaining.
 #[doc = include_str!("../docs/close_virtualfd.md")]
-pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(u64,u64),threei::RetVal> {
+pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(),threei::RetVal> {
     let mut fdtable = GLOBALFDTABLE.lock().unwrap();
 
     if !fdtable.contains_key(&cageid) {
@@ -473,10 +395,11 @@ pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(u64,u64),threei::RetVa
                 // Let their code know this has been closed...
                 let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
                 (closehandlers.unreal_handler)(entry.optionalinfo);
-                Ok((NO_REAL_FD,0))
+                Ok(())
             }
             else {
-                Ok((entry.realfd, _decrement_realfd(entry.realfd)))
+                _decrement_realfd(entry.realfd);
+                Ok(())
             }
         None => Err(threei::Errno::EBADFD as u64),
     }

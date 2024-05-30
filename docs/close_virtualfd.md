@@ -1,12 +1,8 @@
-Close a virtual file descriptor, returning (realfd, remaining count)
+Close a virtual file descriptor, calling the close handler, as appropriate
 
-This is a helper function for close.  It returns the realfd and the remaining
-count of times this fd is open.  This is useful for letting many virtualfds
-all map to the same real fd and then only closing it when the last fd is 
-closed.
-
-If the realfd is NO_REAL_FD, then it always returns (NO_REAL_FD, 0) regardless
-of how many NO_REAL_FD entries there are.
+This is a helper function for close.  It calls the close handler which
+is appropriate given the status of the underlying realfd.  See
+[register_close_handlers] for more information.
 
 Panics:
     Invalid cageid for srccageid
@@ -19,12 +15,15 @@ Example:
 # use fdtables::*;
 # let cage_id = threei::TESTING_CAGEID;
 # const REALFD:u64 = 209;
+# const VIRTFD:u64= 345;
+fn one(_:u64) { }
+fn two(_:u64) { }
+register_close_handlers(one, two, NULL_FUNC);
 let my_virt_fd = get_unused_virtual_fd(cage_id, REALFD, false, 10).unwrap();
 // dup2 call made for fd 15...
-get_specific_virtual_fd(cage_id, 15, REALFD, false, 10).unwrap();
-// Now they close the original fd...
-let (realfd, count) = close_virtualfd(cage_id,my_virt_fd).unwrap();
-assert_eq!(realfd,REALFD);
-// ... but one reference remains!
-assert_eq!(count,1);
+get_specific_virtual_fd(cage_id, VIRTFD, REALFD, false, 10).unwrap();
+// Now they close the original fd...  This will call function "one"
+close_virtualfd(cage_id,my_virt_fd).unwrap();
+// both fds are closed.  This will call "two"
+close_virtualfd(cage_id,VIRTFD).unwrap();
 ```

@@ -292,13 +292,11 @@ pub fn copy_fdtable_for_cage(srccageid: u64, newcageid: u64) -> Result<(), three
 // This is mostly used in handling exit, etc.  Returns the HashMap
 // for the cage.
 #[doc = include_str!("../docs/remove_cage_from_fdtable.md")]
-pub fn remove_cage_from_fdtable(cageid: u64) -> HashMap<u64, FDTableEntry> {
+pub fn remove_cage_from_fdtable(cageid: u64) {
 
     if !FDTABLE.contains_key(&cageid) {
         panic!("Unknown cageid in fdtable access");
     }
-
-    let mut myhashmap = HashMap::new();
 
     let myfdvec = FDTABLE.get(&cageid).unwrap();
     for item in 0..FD_PER_PROCESS_MAX as usize {
@@ -312,7 +310,6 @@ pub fn remove_cage_from_fdtable(cageid: u64) -> HashMap<u64, FDTableEntry> {
                 let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
                 (closehandlers.unreal_handler)(myfdvec[item].unwrap().optionalinfo);
             }
-            myhashmap.insert(item as u64,myfdvec[item].unwrap());
         }
     }
     // I need to do this or else I'll try to double claim the lock and
@@ -321,20 +318,16 @@ pub fn remove_cage_from_fdtable(cageid: u64) -> HashMap<u64, FDTableEntry> {
 
     FDTABLE.remove(&cageid);
 
-    myhashmap
-
 }
 
 // This removes all fds with the should_cloexec flag set.  They are returned
 // in a new hashmap...
 #[doc = include_str!("../docs/empty_fds_for_exec.md")]
-pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
+pub fn empty_fds_for_exec(cageid: u64) {
 
     if !FDTABLE.contains_key(&cageid) {
         panic!("Unknown cageid in fdtable access");
     }
-
-    let mut myhashmap = HashMap::new();
 
     let mut myfdvec = FDTABLE.get_mut(&cageid).unwrap();
     for item in 0..FD_PER_PROCESS_MAX as usize {
@@ -348,19 +341,16 @@ pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
                 let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
                 (closehandlers.unreal_handler)(myfdvec[item].unwrap().optionalinfo);
             }
-            myhashmap.insert(item as u64,myfdvec[item].unwrap());
             myfdvec[item] = None;
         }
     }
-
-    myhashmap
 
 }
 
 // Helper for close.  Returns a tuple of realfd, number of references
 // remaining.
 #[doc = include_str!("../docs/close_virtualfd.md")]
-pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(u64,u64),threei::RetVal> {
+pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(),threei::RetVal> {
     if !FDTABLE.contains_key(&cageid) {
         panic!("Unknown cageid in fdtable access");
     }
@@ -377,11 +367,12 @@ pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(u64,u64),threei::RetVa
             (closehandlers.unreal_handler)(myfdarray[virtfd as usize].unwrap().optionalinfo);
             // Zero out this entry...
             myfdarray[virtfd as usize] = None;
-            return Ok((NO_REAL_FD,0));
+            return Ok(());
         }
+        _decrement_realfd(therealfd);
         // Zero out this entry...
         myfdarray[virtfd as usize] = None;
-        return Ok((therealfd,_decrement_realfd(therealfd)));
+        return Ok(());
     }
     Err(threei::Errno::EBADFD as u64)
 }

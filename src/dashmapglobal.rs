@@ -303,7 +303,7 @@ pub fn copy_fdtable_for_cage(srccageid: u64, newcageid: u64) -> Result<(), three
 // This is mostly used in handling exit, etc.  Returns the HashMap
 // for the cage.
 #[doc = include_str!("../docs/remove_cage_from_fdtable.md")]
-pub fn remove_cage_from_fdtable(cageid: u64) -> HashMap<u64, FDTableEntry> {
+pub fn remove_cage_from_fdtable(cageid: u64) {
 
     if !FDTABLE.contains_key(&cageid) {
         panic!("Unknown cageid in fdtable access");
@@ -321,13 +321,13 @@ pub fn remove_cage_from_fdtable(cageid: u64) -> HashMap<u64, FDTableEntry> {
         }
     }
 
-    FDTABLE.remove(&cageid).unwrap().1
+    FDTABLE.remove(&cageid).unwrap();
 }
 
 // This removes all fds with the should_cloexec flag set.  They are returned
 // in a new hashmap...
 #[doc = include_str!("../docs/empty_fds_for_exec.md")]
-pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
+pub fn empty_fds_for_exec(cageid: u64) {
 
     if !FDTABLE.contains_key(&cageid) {
         panic!("Unknown cageid in fdtable access");
@@ -343,10 +343,8 @@ pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
 
     let mut thiscagefdtable = FDTABLE.get_mut(&cageid).unwrap();
 
-    let mut with_cloexec_hm:HashMap<u64,FDTableEntry> = HashMap::new();
     for (k,v) in thiscagefdtable.clone().iter() {
         if v.should_cloexec {
-            with_cloexec_hm.insert(*k,*v);
             if v.realfd == NO_REAL_FD {
                 // Let their code know this has been closed...
                 let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
@@ -361,15 +359,13 @@ pub fn empty_fds_for_exec(cageid: u64) -> HashMap<u64, FDTableEntry> {
 
     }
 
-    //... return the items remaining...
-    with_cloexec_hm
 }
 
 
 // Helper for close.  Returns a tuple of realfd, number of references 
 // remaining.
 #[doc = include_str!("../docs/close_virtualfd.md")]
-pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(u64,u64),threei::RetVal> {
+pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(),threei::RetVal> {
     if !FDTABLE.contains_key(&cageid) {
         panic!("Unknown cageid in fdtable access");
     }
@@ -382,10 +378,11 @@ pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(u64,u64),threei::RetVa
                 // Let their code know this has been closed...
                 let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
                 (closehandlers.unreal_handler)(entry.optionalinfo);
-                Ok((NO_REAL_FD,0))
+                Ok(())
             }
             else {
-                Ok((entry.realfd, _decrement_realfd(entry.realfd)))
+                _decrement_realfd(entry.realfd);
+                Ok(())
             }
         None => Err(threei::Errno::EBADFD as u64),
     }

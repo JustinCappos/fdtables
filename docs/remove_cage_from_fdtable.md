@@ -1,7 +1,7 @@
-discards a cage -- likely for handling exit()
+discards a cage (for exit()) and calls the appropriate close handlers
 
-This is mostly used in handling exit, etc.  Returns the HashMap for the 
-cage, so that the caller can close realfds, etc. as is needed.
+This is mostly used in handling exit, etc.  Calls all of the correct close
+handlers.
 
 Panics:
     Invalid cageid
@@ -16,8 +16,7 @@ Example:
 # let cage_id = threei::TESTING_CAGEID2;
 # copy_fdtable_for_cage(src_cage_id,cage_id).unwrap();
 let my_virt_fd = get_unused_virtual_fd(cage_id, 10, false, 10).unwrap();
-let my_cages_fdtable = remove_cage_from_fdtable(cage_id);
-assert!(my_cages_fdtable.get(&my_virt_fd).is_some());
+remove_cage_from_fdtable(cage_id);
 //   If we do the following line, it would panic, since the cage_id has 
 //   been removed from the table...
 // get_unused_virtual_fd(cage_id, 10, false, 10)

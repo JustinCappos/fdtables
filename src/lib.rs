@@ -145,13 +145,13 @@
 //          This is effectively just making a copy of a specific cage's
 //          fdtable, for use in fork()
 //
-//      remove_cage_from_fdtable(cageid) -> HashMap<virt_fd:u64,FDTableEntry>
-//          This is mostly used in handling exit, etc.  Returns the HashMap
-//          for the cage.
+//      remove_cage_from_fdtable(cageid) 
+//          This is mostly used in handling exit, etc.  Calls the appropriate
+//          close handlers.
 //
-//      empty_fds_for_exec(cageid) -> HashMap<virt_fd:u64,FDTableEntry>
+//      empty_fds_for_exec(cageid) 
 //          This handles exec by removing all of FDTableEntries with cloexec
-//          set.  Those are returned in a HashMap
+//          set.  It calls the appropriate close handler for each fd.
 //
 //      get_optionalinfo(cageid,virtualfd) -> Result<optionalinfo, EBADFD>
 //      set_optionalinfo(cageid,virtualfd,optionalinfo) -> Result<(), EBADFD>
@@ -163,10 +163,9 @@
 //          for a caller that needs to examine the table.  Likely could be
 //          more efficient by letting the caller borrow this...
 //
-//      close_virtualfd(cageid: u64) -> Result<(realfd, stillopencount),EBADF>
-//          removes an entry from the virtual fd table.  It returns the
-//          realfd and a count of times that this realfd is used across
-//          all other cages.  Mostly used for close...
+//      close_virtualfd(cageid: u64) -> Result<(),EBADF>
+//          removes an entry from the virtual fd table.  It calls the
+//          appropriate close handlers.
 //
 //
 // In situations where this will be used by a grate, a few other calls are
@@ -320,19 +319,11 @@ mod tests {
         refresh();
 
         // Acquire two virtual fds...
-        let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
+        let _my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
 
         // let's drop this fdtable...
-        let mytable = remove_cage_from_fdtable(threei::TESTING_CAGEID);
-        // And check what we got back...
-        assert_eq!(
-            *(mytable.get(&my_virt_fd1).unwrap()),
-            FDTableEntry {
-                realfd: 10,
-                should_cloexec: false,
-                optionalinfo: 150
-            }
-        );
+        remove_cage_from_fdtable(threei::TESTING_CAGEID);
+        // Likely should have a better test, but everything will panic...
     }
 
     #[test]
@@ -347,7 +338,7 @@ mod tests {
         let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
         let my_virt_fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 4, true, 250).unwrap();
 
-        let myhm = empty_fds_for_exec(threei::TESTING_CAGEID);
+        empty_fds_for_exec(threei::TESTING_CAGEID);
 
         assert_eq!(
             150,
@@ -356,10 +347,6 @@ mod tests {
         // Should be missing...
         assert!(get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd2).is_err());
 
-        // Should be missing...
-        assert!(myhm.get(&my_virt_fd1).is_none());
-        // Should be in this hash map now...
-        assert_eq!(myhm.get(&my_virt_fd2).unwrap().realfd, 4);
     }
 
     #[test]
@@ -485,6 +472,9 @@ mod tests {
 
         const SPECIFICVIRTUALFD: u64 = 15;
 
+        // None of my closes (until the end) will be the last...
+        register_close_handlers(NULL_FUNC,do_panic,NULL_FUNC);
+
         // use the same realfd a few times in different ways...
         let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
         get_specific_virtual_fd(threei::TESTING_CAGEID, SPECIFICVIRTUALFD, REALFD, false, 10)
@@ -495,53 +485,23 @@ mod tests {
             get_unused_virtual_fd(threei::TESTING_CAGEID, ANOTHERREALFD, false, 10).unwrap();
 
         // let's close one (should have two left...)
-        let (realfd, count) = close_virtualfd(threei::TESTING_CAGEID, my_virt_fd).unwrap();
-        assert_eq!(realfd, REALFD);
-        assert_eq!(count, 2);
+        close_virtualfd(threei::TESTING_CAGEID, my_virt_fd).unwrap();
 
         // Let's fork (to double the count)!
         copy_fdtable_for_cage(threei::TESTING_CAGEID, threei::TESTING_CAGEID7).unwrap();
 
-        // Get and close this to check the count...
-        let check_my_virt_fd =
-            get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
-        assert_eq!(
-            4,
-            close_virtualfd(threei::TESTING_CAGEID, check_my_virt_fd)
-                .unwrap()
-                .1
-        );
-
         // let's simulate exec, which should close one of these...
         empty_fds_for_exec(threei::TESTING_CAGEID7);
-
-        // Get and close this to check the count...
-        let check_my_virt_fd =
-            get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
-        assert_eq!(
-            3,
-            close_virtualfd(threei::TESTING_CAGEID, check_my_virt_fd)
-                .unwrap()
-                .1
-        );
 
         // Let's simulate exit on the initial cage, to close two of them...
         remove_cage_from_fdtable(threei::TESTING_CAGEID);
 
-        // Get and close this to check the count...
-        let check_my_virt_fd =
-            get_unused_virtual_fd(threei::TESTING_CAGEID7, REALFD, false, 10).unwrap();
-        assert_eq!(
-            1,
-            close_virtualfd(threei::TESTING_CAGEID7, check_my_virt_fd)
-                .unwrap()
-                .1
-        );
+        // panic if this isn't the last one (from now on)
+        register_close_handlers(do_panic,NULL_FUNC,NULL_FUNC);
 
         // Now this is the last one!
-        let (realfd, count) = close_virtualfd(threei::TESTING_CAGEID7, SPECIFICVIRTUALFD).unwrap();
-        assert_eq!(count, 0);
-        assert_eq!(realfd, REALFD);
+        close_virtualfd(threei::TESTING_CAGEID7, SPECIFICVIRTUALFD).unwrap();
+        
     }
 
     #[test]
