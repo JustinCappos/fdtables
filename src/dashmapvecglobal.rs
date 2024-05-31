@@ -163,8 +163,7 @@ pub fn get_unused_virtual_fd(
 }
 
 // This is used for things like dup2, which need a specific fd...
-// NOTE: I will assume that the requested_virtualfd isn't used.  If it is, I
-// will return ELIND
+// If the requested_virtualfd is used, I close it...
 #[doc = include_str!("../docs/get_specific_virtual_fd.md")]
 pub fn get_specific_virtual_fd(
     cageid: u64,
@@ -195,16 +194,23 @@ pub fn get_specific_virtual_fd(
         optionalinfo,
     };
 
-    if FDTABLE
-        .get(&cageid)
-        .unwrap()[requested_virtualfd as usize].is_some()
-    {
-        Err(threei::Errno::ELIND as u64)
-    } else {
-        FDTABLE.get_mut(&cageid).unwrap()[requested_virtualfd as usize] = Some(myentry);
-        _increment_realfd(realfd);
-        Ok(())
+    // I moved this up so that if I decrement the same realfd, it calls
+    // the intermediate handler instead of the final one.
+    _increment_realfd(realfd);
+    if let Some(entry) = FDTABLE.get(&cageid).unwrap()[requested_virtualfd as usize] {
+        if entry.realfd != NO_REAL_FD {
+                        _decrement_realfd(entry.realfd);
+        }
+        else {
+            // Let their code know this has been closed...
+            let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
+            (closehandlers.unreal_handler)(entry.optionalinfo);
+        }
     }
+
+    // always add the new entry
+    FDTABLE.get_mut(&cageid).unwrap()[requested_virtualfd as usize] = Some(myentry);
+    Ok(())
 }
 
 // We're just setting a flag here, so this should be pretty straightforward.

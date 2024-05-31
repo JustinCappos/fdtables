@@ -136,10 +136,10 @@
 //
 //      set_cloexec(cageid,virtualfd,is_cloexec) -> Result<(), EBADFD>
 //
-//      get_specific_virtual_fd(cageid,virtualfd,realfd,is_cloexec,optionalinfo) -> Result<(), (ELIND|EBADF)>
+//      get_specific_virtual_fd(cageid,virtualfd,realfd,is_cloexec,optionalinfo) -> Result<(), EBADF>
 //          This is mostly used for dup2/3.  I'm assuming the caller got the
-//          entry already and wants to put it in a location.  Returns ELIND
-//          if the entry is occupied and EBADF if out of range...
+//          entry already and wants to put it in a location.  Closes the fd if
+//          the entry is occupied.  Raises EBADF if out of range...
 //
 //      copy_fdtable_for_cage(srccageid, newcageid) -> Result<(), ENFILE>
 //          This is effectively just making a copy of a specific cage's
@@ -505,10 +505,19 @@ mod tests {
     #[test]
     // Let's test to see our functions error gracefully with badfds...
     fn get_specific_virtual_fd_tests() {
-        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
-            TESTMUTEX.clear_poison();
-            e.into_inner()
-        });
+        let mut _thelock: MutexGuard<bool>;
+
+        loop {
+            match TESTMUTEX.lock() {
+                Err(_) => {
+                    TESTMUTEX.clear_poison();
+                }
+                Ok(val) => {
+                    _thelock = val;
+                    break;
+                }
+            }
+        }
         refresh();
 
         let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
@@ -530,8 +539,6 @@ mod tests {
             1
         );
 
-        // Check if I get an error using a used fd
-        assert!(get_specific_virtual_fd(threei::TESTING_CAGEID, my_new_fd, 1, true, 5).is_err());
         // Check if I get an error going out of range...
         assert!(get_specific_virtual_fd(
             threei::TESTING_CAGEID,
@@ -668,6 +675,59 @@ mod tests {
         } else {
             panic!("Should have raised an error...");
         }
+    }
+
+    #[test]
+    // Do we close a virtualfd when we select it?  (Do nothing, but see the
+    // next test.)
+    fn check_get_specific_virtual_fd_close_ok_test() {
+        let mut _thelock: MutexGuard<bool>;
+
+        loop {
+            match TESTMUTEX.lock() {
+                Err(_) => {
+                    TESTMUTEX.clear_poison();
+                }
+                Ok(val) => {
+                    _thelock = val;
+                    break;
+                }
+            }
+        }
+        refresh();
+
+        copy_fdtable_for_cage(threei::TESTING_CAGEID, threei::TESTING_CAGEID10).unwrap();
+
+        let virtfd = get_unused_virtual_fd(threei::TESTING_CAGEID10, 10, false, 100).unwrap();
+        // Do nothing.  See next test...
+        get_specific_virtual_fd(threei::TESTING_CAGEID10, virtfd, 10, false, 100).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    // Do we close a virtualfd when we call get_specific on it?
+    fn check_get_specific_virtual_fd_close_panic_test() {
+        let mut _thelock: MutexGuard<bool>;
+
+        loop {
+            match TESTMUTEX.lock() {
+                Err(_) => {
+                    TESTMUTEX.clear_poison();
+                }
+                Ok(val) => {
+                    _thelock = val;
+                    break;
+                }
+            }
+        }
+        refresh();
+
+        copy_fdtable_for_cage(threei::TESTING_CAGEID, threei::TESTING_CAGEID11).unwrap();
+        // panic in a moment!
+        register_close_handlers(do_panic, do_panic, NULL_FUNC);
+        let virtfd = get_unused_virtual_fd(threei::TESTING_CAGEID11, 234, false, 100).unwrap();
+        // panic!!!
+        get_specific_virtual_fd(threei::TESTING_CAGEID11, virtfd, 10, false, 100).unwrap();
     }
 
     #[test]

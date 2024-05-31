@@ -1,15 +1,16 @@
 This is used to get a specific virtualfd mapping.
 
-Useful for implementing something like dup2.  Use this only if you care 
+Useful for implementing something like dup2.  This closes the destination fd
+if it exists, calling the relevant close handlers.   Use this only if you care 
 which virtualfd you get.  Otherwise use [get_unused_virtual_fd].
+
+Note, if you replace an entry which was the last reference to a realfd, with 
+an entry with that same realfd, the intermediate_close handler is called.
 
 Panics:
     if the cageid does not exist
 
 Errors:
-    returns ELIND if you're picking an already used virtualfd.  If you
-    want to mimic dup2's behavior, you need to close it first, which the
-    caller should handle.
     returns EBADF if it's not in the range of valid fds.
 
 Example:
