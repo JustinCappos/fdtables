@@ -145,11 +145,11 @@
 //          This is effectively just making a copy of a specific cage's
 //          fdtable, for use in fork()
 //
-//      remove_cage_from_fdtable(cageid) 
+//      remove_cage_from_fdtable(cageid)
 //          This is mostly used in handling exit, etc.  Calls the appropriate
 //          close handlers.
 //
-//      empty_fds_for_exec(cageid) 
+//      empty_fds_for_exec(cageid)
 //          This handles exec by removing all of FDTableEntries with cloexec
 //          set.  It calls the appropriate close handler for each fd.
 //
@@ -346,7 +346,6 @@ mod tests {
         );
         // Should be missing...
         assert!(get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd2).is_err());
-
     }
 
     #[test]
@@ -473,7 +472,7 @@ mod tests {
         const SPECIFICVIRTUALFD: u64 = 15;
 
         // None of my closes (until the end) will be the last...
-        register_close_handlers(NULL_FUNC,do_panic,NULL_FUNC);
+        register_close_handlers(NULL_FUNC, do_panic, NULL_FUNC);
 
         // use the same realfd a few times in different ways...
         let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
@@ -497,11 +496,10 @@ mod tests {
         remove_cage_from_fdtable(threei::TESTING_CAGEID);
 
         // panic if this isn't the last one (from now on)
-        register_close_handlers(do_panic,NULL_FUNC,NULL_FUNC);
+        register_close_handlers(do_panic, NULL_FUNC, NULL_FUNC);
 
         // Now this is the last one!
         close_virtualfd(threei::TESTING_CAGEID7, SPECIFICVIRTUALFD).unwrap();
-        
     }
 
     #[test]

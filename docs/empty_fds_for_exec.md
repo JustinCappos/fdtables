@@ -2,7 +2,7 @@ removes all entries with should_cloexec set with close handlers are called
 
 This goes through every entry in a cage's fdtable and removes all entries
 that have should_cloexec set to true.  These entries have the appropriate
-close handlers called to handle this call.  See [register_close_handler].
+close handlers called to handle this call.  See [register_close_handlers].
 
 Panics:
     Invalid cageid
