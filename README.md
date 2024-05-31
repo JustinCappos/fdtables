@@ -22,8 +22,10 @@ If you want to test multiple implementations, there is a script `run_all` which 
 all copies.  Simply type something like `./run_all cargo test` to run the unit tests on all implementations.
 
 To make a pretty benchmark comparison table, install criterion-table and run the following:
-* `./run_all -o cargo criterion --message-format=json`
-* `cat target/*.out | criterion-table > BENCHMARKS.md`
+```
+./run_all -o cargo criterion --message-format=json
+cat target/*.out | criterion-table > BENCHMARKS.md
+```
 
 Then open BENCHMARKS.md to see the results.  It is in Github markdown format, so is best viewed there.
 
