@@ -16,7 +16,7 @@ After cloning the repository, the usual commands will work.
 * `cargo fmt` -- Should do nothing, since the code should match the desired style already.
 
 There are also multiple algorithms supported.  To change the algorithm, copy the file from `impl_macros` and overwrite `src/current_impl` with
-the desired implementation.  
+the desired implementation.  For example, to change to the `vanilla` algorithm do: `cp impl_macros/vanilla src/current_impl`.
 
 If you want to test multiple implementations, there is a script `run_all` which will swap out the implementation for you and iterate through 
 all copies.  Simply type something like `./run_all cargo test` to run the unit tests on all implementations.
