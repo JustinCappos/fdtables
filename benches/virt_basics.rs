@@ -196,7 +196,7 @@ pub fn run_benchmark(c: &mut Criterion) {
     }
     refresh();
 
-    // ---------------- MULTI-THREADED TESTS ------------------  //
+    // ---------------- MULTI-THREADED / 1 cage TESTS ------------------  //
 
     // -- Multithreaded benchmark 1: 100K translate calls --
 
@@ -207,7 +207,7 @@ pub fn run_benchmark(c: &mut Criterion) {
     for threadcount in [1, 2, 4, 8, 16].iter() {
         group.bench_with_input(
             BenchmarkId::new(
-                format!("{}/[mt:{}] trans_virtfd (100K)", ALGONAME, threadcount),
+                format!("{}/[mt1c:{}] trans_virtfd (100K)", ALGONAME, threadcount),
                 threadcount,
             ),
             threadcount,
@@ -253,7 +253,7 @@ pub fn run_benchmark(c: &mut Criterion) {
     for threadcount in [1, 2, 4, 8, 16].iter() {
         group.bench_with_input(
             BenchmarkId::new(
-                format!("{}/[mt:{}] get_trans (1K per)", ALGONAME, threadcount),
+                format!("{}/[mt1c:{}] get_trans (1K per)", ALGONAME, threadcount),
                 threadcount,
             ),
             threadcount,
@@ -297,7 +297,177 @@ pub fn run_benchmark(c: &mut Criterion) {
     for threadcount in [1, 2, 4, 8, 16].iter() {
         group.bench_with_input(
             BenchmarkId::new(
-                format!("{}/[mt:{}] get_close (10K)", ALGONAME, threadcount),
+                format!("{}/[mt1c:{}] get_close (10K)", ALGONAME, threadcount),
+                threadcount,
+            ),
+            threadcount,
+            |b, threadcount| {
+                b.iter({
+                    || {
+                        let mut thread_handle_vec: Vec<thread::JoinHandle<()>> = Vec::new();
+                        for _numthreads in 0..*threadcount {
+                            // Need to borrow so the lifetime can live outside
+                            // the thread's closure
+                            let thisthreadcount = *threadcount;
+
+                            thread_handle_vec.push(thread::spawn(move || {
+                                // Do 100K / threadcount each
+                                for _ in 0..10000 / thisthreadcount {
+                                    let fd = get_unused_virtual_fd(
+                                        threei::TESTING_CAGEID,
+                                        10,
+                                        true,
+                                        100,
+                                    )
+                                    .unwrap();
+                                    close_virtualfd(threei::TESTING_CAGEID, fd).unwrap();
+                                }
+                            }));
+                        }
+                        for handle in thread_handle_vec {
+                            handle.join().unwrap();
+                        }
+                    }
+                })
+            },
+        );
+    }
+
+    // -------------- MULTI-THREADED / MULTI-CAGE TESTS ----------------  //
+
+    // -- Multithreaded benchmark 1: 100K translate calls --
+
+    let fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, true, 100).unwrap();
+    let fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 20, true, 200).unwrap();
+    let fd3 = get_unused_virtual_fd(threei::TESTING_CAGEID, 30, true, 300).unwrap();
+    for val in 1..16 {
+        // I'm just going to assume I can increment these...
+        copy_fdtable_for_cage(threei::TESTING_CAGEID, threei::TESTING_CAGEID + val).unwrap();
+    }
+
+    for threadcount in [1, 2, 4, 8, 16].iter() {
+        group.bench_with_input(
+            BenchmarkId::new(
+                format!("{}/[mtmc:{}] trans_virtfd (100K)", ALGONAME, threadcount),
+                threadcount,
+            ),
+            threadcount,
+            |b, threadcount| {
+                b.iter({
+                    || {
+                        let mut thread_handle_vec: Vec<thread::JoinHandle<()>> = Vec::new();
+                        for numthreads in 0..*threadcount {
+                            // Need to borrow so the lifetime can live outside
+                            // the thread's closure
+                            let thisthreadcount = *threadcount;
+
+                            thread_handle_vec.push(thread::spawn(move || {
+                                // Do 10K / threadcount of 10 requests each.  100K total
+                                for _ in 0..10000 / thisthreadcount {
+                                    translate_virtual_fd(threei::TESTING_CAGEID + numthreads, fd)
+                                        .unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID + numthreads, fd)
+                                        .unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID + numthreads, fd)
+                                        .unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID + numthreads, fd)
+                                        .unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID + numthreads, fd2)
+                                        .unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID + numthreads, fd2)
+                                        .unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID + numthreads, fd2)
+                                        .unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID + numthreads, fd3)
+                                        .unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID + numthreads, fd3)
+                                        .unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID + numthreads, fd3)
+                                        .unwrap();
+                                }
+                            }));
+                        }
+                        for handle in thread_handle_vec {
+                            handle.join().unwrap();
+                        }
+                    }
+                })
+            },
+        );
+    }
+    refresh();
+
+    // -- Multithreaded benchmark 2: get / translate interleaved --
+
+    // I will always do 100K requests (split amongst some number of threads)
+
+    for threadcount in [1, 2, 4, 8, 16].iter() {
+        group.bench_with_input(
+            BenchmarkId::new(
+                format!("{}/[mtmc:{}] get_trans (1K per)", ALGONAME, threadcount),
+                threadcount,
+            ),
+            threadcount,
+            |b, threadcount| {
+                b.iter({
+                    || {
+                        // setup the empty cages
+                        for numthreads in 1..*threadcount {
+                            copy_fdtable_for_cage(
+                                threei::TESTING_CAGEID,
+                                threei::TESTING_CAGEID + numthreads,
+                            )
+                            .unwrap();
+                        }
+
+                        let mut thread_handle_vec: Vec<thread::JoinHandle<()>> = Vec::new();
+                        for numthreads in 0..*threadcount {
+                            // Need to borrow so the lifetime can live outside
+                            // the thread's closure
+                            let thisthreadcount = *threadcount;
+                            // make a copy for this cage...
+
+                            thread_handle_vec.push(thread::spawn(move || {
+                                // Do 1K / threadcount
+                                for _ in 0..1000 / thisthreadcount {
+                                    let fd = get_unused_virtual_fd(
+                                        threei::TESTING_CAGEID + numthreads,
+                                        10,
+                                        true,
+                                        100,
+                                    )
+                                    .unwrap();
+                                    translate_virtual_fd(threei::TESTING_CAGEID + numthreads, fd)
+                                        .unwrap();
+                                }
+                            }));
+                        }
+                        for handle in thread_handle_vec {
+                            handle.join().unwrap();
+                        }
+                        refresh();
+                    }
+                })
+            },
+        );
+    }
+
+    refresh();
+
+    // -- Multithreaded benchmark 3: get / close interleaved --
+
+    // dup the cage tables as this is different cages for each...
+    for val in 1..16 {
+        // I'm just going to assume I can increment these...
+        copy_fdtable_for_cage(threei::TESTING_CAGEID, threei::TESTING_CAGEID + val).unwrap();
+    }
+
+    // I will always do 100K requests (split amongst some number of threads)
+
+    for threadcount in [1, 2, 4, 8, 16].iter() {
+        group.bench_with_input(
+            BenchmarkId::new(
+                format!("{}/[mtmc:{}] get_close (10K)", ALGONAME, threadcount),
                 threadcount,
             ),
             threadcount,
