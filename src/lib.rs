@@ -247,6 +247,7 @@ mod tests {
     // find the value in the table afterwards...
     fn get_and_translate_work() {
         let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -268,6 +269,7 @@ mod tests {
     // Let's see if I can change the cloexec flag...
     fn try_set_cloexec() {
         let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -283,6 +285,7 @@ mod tests {
     // Get and set optionalinfo
     fn try_get_and_set_optionalinfo() {
         let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -313,6 +316,7 @@ mod tests {
     #[test]
     fn test_remove_cage_from_fdtable() {
         let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -329,6 +333,7 @@ mod tests {
     #[test]
     fn test_empty_fds_for_exec() {
         let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -351,6 +356,7 @@ mod tests {
     #[test]
     fn return_fdtable_copy_test() {
         let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -414,6 +420,7 @@ mod tests {
     #[test]
     fn test_copy_fdtable_for_cage() {
         let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -460,6 +467,7 @@ mod tests {
     // Do close_virtualfd(...) testing...
     fn test_close_virtualfd() {
         let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -554,6 +562,7 @@ mod tests {
     // Let's test to see our functions error gracefully with badfds...
     fn badfd_test() {
         let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -571,6 +580,7 @@ mod tests {
     // Let's do a multithreaded test...
     fn multithreaded_test() {
         let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -610,6 +620,7 @@ mod tests {
     // Let's do a multithreaded test...
     fn multithreaded_write_test() {
         let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -640,6 +651,7 @@ mod tests {
     #[test]
     fn use_all_fds_test() {
         let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -735,6 +747,7 @@ mod tests {
     // Let's check to make sure we panic with an invalid cageid
     fn translate_panics_on_bad_cageid_test() {
         let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -747,6 +760,7 @@ mod tests {
     // Let's check to make sure we panic with an invalid cageid
     fn get_unused_virtual_fd_panics_on_bad_cageid_test() {
         let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
@@ -759,6 +773,7 @@ mod tests {
     // Let's check to make sure we panic with an invalid cageid
     fn set_cloexec_panics_on_bad_cageid_test() {
         let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
             TESTMUTEX.clear_poison();
             e.into_inner()
         });
