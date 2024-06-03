@@ -532,32 +532,51 @@ mod tests {
         get_specific_virtual_fd(cage_id, 3, 7, false, 10).unwrap();
         get_specific_virtual_fd(cage_id, 5, NO_REAL_FD, false, 123).unwrap();
 
-        let mut bad_fds_to_check= _init_fd_set();
-        _fd_set(2,&mut bad_fds_to_check);
+        let mut bad_fds_to_check = _init_fd_set();
+        _fd_set(2, &mut bad_fds_to_check);
 
         // check all of the positions!
-        assert!(get_real_bitmasks_for_select(cage_id, 6, Some(bad_fds_to_check), None, None).is_err());
-        assert!(get_real_bitmasks_for_select(cage_id, 6, None, Some(bad_fds_to_check), None).is_err());
-        assert!(get_real_bitmasks_for_select(cage_id, 6, None, None, Some(bad_fds_to_check)).is_err());
+        assert!(
+            get_real_bitmasks_for_select(cage_id, 6, Some(bad_fds_to_check), None, None).is_err()
+        );
+        assert!(
+            get_real_bitmasks_for_select(cage_id, 6, None, Some(bad_fds_to_check), None).is_err()
+        );
+        assert!(
+            get_real_bitmasks_for_select(cage_id, 6, None, None, Some(bad_fds_to_check)).is_err()
+        );
 
         // but if I drop the nfds too low, it is okay...
-        assert!(get_real_bitmasks_for_select(cage_id, 2, None, None, Some(bad_fds_to_check)).is_ok());
+        assert!(
+            get_real_bitmasks_for_select(cage_id, 2, None, None, Some(bad_fds_to_check)).is_ok()
+        );
 
         // too high also errors...
-        assert!(get_real_bitmasks_for_select(cage_id, 1024, None, None, Some(bad_fds_to_check)).is_err());
+        assert!(
+            get_real_bitmasks_for_select(cage_id, 1024, None, None, Some(bad_fds_to_check))
+                .is_err()
+        );
 
         // recall, we set up some actual virtualfds above...
-        let mut actual_fds_to_check= _init_fd_set();
-        _fd_set(3,&mut actual_fds_to_check);
-        _fd_set(5,&mut actual_fds_to_check);
+        let mut actual_fds_to_check = _init_fd_set();
+        _fd_set(3, &mut actual_fds_to_check);
+        _fd_set(5, &mut actual_fds_to_check);
 
-        assert!(get_real_bitmasks_for_select(cage_id, 6, Some(actual_fds_to_check), Some(actual_fds_to_check), None).is_ok());
-        
+        assert!(get_real_bitmasks_for_select(
+            cage_id,
+            6,
+            Some(actual_fds_to_check),
+            Some(actual_fds_to_check),
+            None
+        )
+        .is_ok());
+
         // let's peek closer at an actual call...
-        let (_,_realreadbits, _realwritebits, _realexceptbits, unrealitems, mappingtable) = get_real_bitmasks_for_select(cage_id, 6, Some(actual_fds_to_check), None, None).unwrap();
+        let (_, _realreadbits, _realwritebits, _realexceptbits, unrealitems, mappingtable) =
+            get_real_bitmasks_for_select(cage_id, 6, Some(actual_fds_to_check), None, None)
+                .unwrap();
         assert_eq!(unrealitems[0].len(), 1);
         assert_eq!(mappingtable.len(), 1);
-
     }
 
     #[test]

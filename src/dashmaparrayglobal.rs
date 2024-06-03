@@ -463,7 +463,7 @@ pub fn _fd_isset(fd:u64, thisfdset:&fd_set) -> bool {
 pub fn _fd_print(thisfdset:&fd_set) {
     println!("start");
     for bit in 0..FD_PER_PROCESS_MAX {
-        if _fd_isset(bit as u64, thisfdset) {
+        if _fd_isset(bit, thisfdset) {
             println!("{}",bit);
         }
     }
@@ -475,10 +475,13 @@ fn _do_bitmods(myfdarray:[Option<FDTableEntry>;FD_PER_PROCESS_MAX as usize], nfd
     let mut unrealhashset:HashSet<(u64,u64)> = HashSet::new();
     // Iterate through the infdset and set those values as is appropriate
     let mut highestpos = 0;
+
+    // Clippy is somehow missing how pos is using bit.  
+    #[allow(clippy::needless_range_loop)]
     for bit in 0..nfds as usize {
         let pos = bit as u64;
         if _fd_isset(pos,&infdset) {
-            if let Some(entry) = myfdarray[bit as usize] {
+            if let Some(entry) = myfdarray[bit] {
                 if entry.realfd == NO_REAL_FD {
                     unrealhashset.insert((pos,entry.optionalinfo));
                 }
@@ -494,7 +497,7 @@ fn _do_bitmods(myfdarray:[Option<FDTableEntry>;FD_PER_PROCESS_MAX as usize], nfd
             }
         }
     }
-    return Ok((highestpos,unrealhashset));
+    Ok((highestpos,unrealhashset))
 }
 
 // helper to call before calling select beneath you.  Translates your virtfds 
@@ -517,8 +520,8 @@ pub fn get_real_bitmasks_for_select(cageid:u64, nfds:u64, readbits:Option<fd_set
     let mut newnfds = 0;
 
     // dashmaps are lockless, but usually I would grab a lock on the fdtable
-    // here...  I'll clone instead...
-    let thefdarray = FDTABLE.get(&cageid).unwrap().clone();
+    // here...  
+    let thefdarray = *FDTABLE.get(&cageid).unwrap();
 
     // iterate through the sets...
 //    for (inset,mut retset) in [(readbits,realreadbits), (writebits,realwritebits), (exceptbits,realexceptbits)] {
