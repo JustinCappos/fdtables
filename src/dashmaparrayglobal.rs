@@ -366,6 +366,30 @@ pub fn empty_fds_for_exec(cageid: u64) {
 
 }
 
+// Returns the HashMap returns a copy of the fdtable for a cage.  Useful 
+// helper function for a caller that needs to examine the table.  Likely could
+// be more efficient by letting the caller borrow this...
+#[doc = include_str!("../docs/return_fdtable_copy.md")]
+pub fn return_fdtable_copy(cageid: u64) -> HashMap<u64, FDTableEntry> {
+
+    if !FDTABLE.contains_key(&cageid) {
+        panic!("Unknown cageid in fdtable access");
+    }
+
+    let mut myhashmap = HashMap::new();
+
+    let myfdarray = FDTABLE.get(&cageid).unwrap();
+    for item in 0..FD_PER_PROCESS_MAX as usize {
+        if myfdarray[item].is_some() {
+            myhashmap.insert(item as u64,myfdarray[item].unwrap());
+        }
+    }
+    myhashmap
+}
+
+
+
+/******************* CLOSE SPECIFIC FUNCTIONALITY *******************/
 
 // Helper for close.  Returns a tuple of realfd, number of references
 // remaining.
@@ -398,27 +422,6 @@ pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(),threei::RetVal> {
 }
 
 
-// Returns the HashMap returns a copy of the fdtable for a cage.  Useful 
-// helper function for a caller that needs to examine the table.  Likely could
-// be more efficient by letting the caller borrow this...
-#[doc = include_str!("../docs/return_fdtable_copy.md")]
-pub fn return_fdtable_copy(cageid: u64) -> HashMap<u64, FDTableEntry> {
-
-    if !FDTABLE.contains_key(&cageid) {
-        panic!("Unknown cageid in fdtable access");
-    }
-
-    let mut myhashmap = HashMap::new();
-
-    let myfdarray = FDTABLE.get(&cageid).unwrap();
-    for item in 0..FD_PER_PROCESS_MAX as usize {
-        if myfdarray[item].is_some() {
-            myhashmap.insert(item as u64,myfdarray[item].unwrap());
-        }
-    }
-    myhashmap
-}
-
 // Register a series of helpers to be called for close.  Can be called
 // multiple times to override the older helpers.
 #[doc = include_str!("../docs/register_close_handlers.md")]
@@ -428,6 +431,46 @@ pub fn register_close_handlers(intermediate_handler: fn(u64), final_handler: fn(
     closehandlers.intermediate_handler = intermediate_handler;
     closehandlers.final_handler = final_handler;
     closehandlers.unreal_handler = unreal_handler;
+}
+
+
+// Helpers to track the count of times each realfd is used
+#[doc(hidden)]
+fn _decrement_realfd(realfd:u64) -> u64 {
+    if realfd == NO_REAL_FD {
+        panic!("Called _decrement_realfd with NO_REAL_FD");
+    }
+
+    let newcount:u64 = REALFDCOUNT.get(&realfd).unwrap().value() - 1;
+    let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
+    if newcount > 0 {
+        (closehandlers.intermediate_handler)(realfd);
+        REALFDCOUNT.insert(realfd,newcount);
+    }
+    else{
+        (closehandlers.final_handler)(realfd);
+    }
+    newcount
+}
+
+// Helpers to track the count of times each realfd is used
+#[doc(hidden)]
+fn _increment_realfd(realfd:u64) -> u64 {
+    if realfd == NO_REAL_FD {
+        return 0
+    }
+
+    // Get a mutable reference to the entry so we can update it.
+    return match REALFDCOUNT.get_mut(&realfd) {
+        Some(mut count) => {
+            *count += 1;
+            *count
+        }
+        None => {
+            REALFDCOUNT.insert(realfd, 1);
+            1
+        }
+    }
 }
 
 
@@ -646,6 +689,7 @@ pub fn get_virtual_bitmasks_from_select_result(nfds:u64, readbits:fd_set, writeb
 }
 
 
+/********************** TESTING HELPER FUNCTION **********************/
 
 #[doc(hidden)]
 // Helper to initialize / empty out state so we can test with a clean system...
@@ -662,43 +706,3 @@ pub fn refresh() {
     closehandlers.unreal_handler = NULL_FUNC;
     // Note, it doesn't seem that Dashmaps can be poisoned...
 }
-
-// Helpers to track the count of times each realfd is used
-#[doc(hidden)]
-fn _decrement_realfd(realfd:u64) -> u64 {
-    if realfd == NO_REAL_FD {
-        panic!("Called _decrement_realfd with NO_REAL_FD");
-    }
-
-    let newcount:u64 = REALFDCOUNT.get(&realfd).unwrap().value() - 1;
-    let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
-    if newcount > 0 {
-        (closehandlers.intermediate_handler)(realfd);
-        REALFDCOUNT.insert(realfd,newcount);
-    }
-    else{
-        (closehandlers.final_handler)(realfd);
-    }
-    newcount
-}
-
-// Helpers to track the count of times each realfd is used
-#[doc(hidden)]
-fn _increment_realfd(realfd:u64) -> u64 {
-    if realfd == NO_REAL_FD {
-        return 0
-    }
-
-    // Get a mutable reference to the entry so we can update it.
-    return match REALFDCOUNT.get_mut(&realfd) {
-        Some(mut count) => {
-            *count += 1;
-            *count
-        }
-        None => {
-            REALFDCOUNT.insert(realfd, 1);
-            1
-        }
-    }
-}
-
