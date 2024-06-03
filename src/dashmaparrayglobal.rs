@@ -9,7 +9,18 @@ use dashmap::DashMap;
 
 use lazy_static::lazy_static;
 
+// needed for select
+use libc::fd_set;
+
 use std::collections::HashMap;
+
+use std::collections::HashSet;
+
+// Using "max" for select...
+use std::cmp;
+
+// needed for select
+use std::mem;
 
 use std::sync::Mutex;
 
@@ -24,7 +35,7 @@ pub const ALGONAME: &str = "DashMapArrayGlobal";
 
 // These are the values we look up with at the end...
 #[doc = include_str!("../docs/fdtableentry.md")]
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq,Eq, Hash)]
 pub struct FDTableEntry {
     pub realfd: u64, // underlying fd (may be a virtual fd below us or
     // a kernel fd)
@@ -417,6 +428,218 @@ pub fn register_close_handlers(intermediate_handler: fn(u64), final_handler: fn(
     closehandlers.intermediate_handler = intermediate_handler;
     closehandlers.final_handler = final_handler;
     closehandlers.unreal_handler = unreal_handler;
+}
+
+
+
+/***************   Code for handling select() ****************/
+// Helper to get an empty fd_set.  Helper function to isolate unsafe code, 
+// etc.
+pub fn _init_fd_set() -> fd_set {
+    let raw_fd_set:fd_set;
+    unsafe {
+        let mut this_fd_set = mem::MaybeUninit::<libc::fd_set>::uninit();
+        libc::FD_ZERO(this_fd_set.as_mut_ptr());
+        raw_fd_set = this_fd_set.assume_init()
+    }
+    raw_fd_set
+}
+
+// Helper to get a null pointer.
+pub fn _get_null_fd_set() -> fd_set {
+    //unsafe{ptr::null_mut()}
+    // BUG!!!  Need to fix this later.
+    _init_fd_set()
+}
+
+pub fn _fd_set(fd:u64, thisfdset:&mut fd_set) {
+    unsafe{libc::FD_SET(fd as i32,thisfdset)}
+}
+
+pub fn _fd_isset(fd:u64, thisfdset:&fd_set) -> bool {
+    unsafe{libc::FD_ISSET(fd as i32,thisfdset)}
+}
+
+pub fn _fd_print(thisfdset:&fd_set) {
+    println!("start");
+    for bit in 0..FD_PER_PROCESS_MAX {
+        if _fd_isset(bit as u64, thisfdset) {
+            println!("{}",bit);
+        }
+    }
+    println!("end");
+}
+
+// Computes the bitmodifications and returns a (maxnfds, unrealset) tuple...
+fn _do_bitmods(myfdarray:[Option<FDTableEntry>;FD_PER_PROCESS_MAX as usize], nfds:u64, infdset: fd_set, thisfdset: &mut fd_set, mappingtable: &mut HashMap<u64,u64>) -> Result<(u64,HashSet<(u64,u64)>),threei::RetVal> {
+    let mut unrealhashset:HashSet<(u64,u64)> = HashSet::new();
+    // Iterate through the infdset and set those values as is appropriate
+    let mut highestpos = 0;
+    for bit in 0..nfds as usize {
+        let pos = bit as u64;
+        if _fd_isset(pos,&infdset) {
+            if let Some(entry) = myfdarray[bit as usize] {
+                if entry.realfd == NO_REAL_FD {
+                    unrealhashset.insert((pos,entry.optionalinfo));
+                }
+                else {
+                    mappingtable.insert(entry.realfd, pos);
+                    _fd_set(entry.realfd,thisfdset);
+                    // I add one because select expects nfds to be the max+1
+                    highestpos = cmp::max(highestpos, entry.realfd+1);
+                }
+            }
+            else {
+                return Err(threei::Errno::EINVAL as u64);
+            }
+        }
+    }
+    return Ok((highestpos,unrealhashset));
+}
+
+// helper to call before calling select beneath you.  Translates your virtfds 
+// to realfds.
+// See: https://man7.org/linux/man-pages/man2/select.2.html for details / 
+// corner cases about the arguments.
+#[doc = include_str!("../docs/get_real_bitmasks_for_select.md")]
+pub fn get_real_bitmasks_for_select(cageid:u64, nfds:u64, readbits:Option<fd_set>, writebits:Option<fd_set>, exceptbits:Option<fd_set>) -> Result<(u64, fd_set, fd_set, fd_set, [HashSet<(u64,u64)>;3], HashMap<u64,u64>),threei::RetVal> {
+    
+    if nfds >= FD_PER_PROCESS_MAX {
+        return Err(threei::Errno::EINVAL as u64);
+    }
+
+    if !FDTABLE.contains_key(&cageid) {
+        panic!("Unknown cageid in fdtable access");
+    }
+
+    let mut unrealarray:[HashSet<(u64,u64)>;3] = [HashSet::new(),HashSet::new(),HashSet::new()];
+    let mut mappingtable:HashMap<u64,u64> = HashMap::new();
+    let mut newnfds = 0;
+
+    // dashmaps are lockless, but usually I would grab a lock on the fdtable
+    // here...  I'll clone instead...
+    let thefdarray = FDTABLE.get(&cageid).unwrap().clone();
+
+    // iterate through the sets...
+//    for (inset,mut retset) in [(readbits,realreadbits), (writebits,realwritebits), (exceptbits,realexceptbits)] {
+//      I can't figure out how to borrow what I need here to make this
+//      work well.
+//
+//      I've written three identical loops instead.
+
+    let mut realreadbits:fd_set;
+    match readbits {
+        Some(virtualbits) => { 
+            realreadbits = _init_fd_set();
+            let (thisnfds,myunrealhashset) = _do_bitmods(thefdarray,nfds,virtualbits, &mut realreadbits,&mut mappingtable)?;
+            newnfds = cmp::max(thisnfds, newnfds);
+            unrealarray[0] = myunrealhashset;
+        }
+        None => {
+            realreadbits = _get_null_fd_set();
+            unrealarray[0] = HashSet::new();
+        }
+    }
+
+    let mut realwritebits:fd_set;
+    match writebits {
+        Some(virtualbits) => { 
+            realwritebits = _init_fd_set();
+            let (thisnfds,myunrealhashset) = _do_bitmods(thefdarray,nfds,virtualbits, &mut realwritebits,&mut mappingtable)?;
+            newnfds = cmp::max(thisnfds, newnfds);
+            unrealarray[1] = myunrealhashset;
+        }
+        None => {
+            realwritebits = _get_null_fd_set();
+            unrealarray[1] = HashSet::new();
+        }
+    }
+
+    let mut realexceptbits:fd_set;
+    match exceptbits {
+        Some(virtualbits) => { 
+            realexceptbits = _init_fd_set();
+            let (thisnfds,myunrealhashset) = _do_bitmods(thefdarray,nfds,virtualbits, &mut realexceptbits,&mut mappingtable)?;
+            newnfds = cmp::max(thisnfds, newnfds);
+            unrealarray[2] = myunrealhashset;
+        }
+        None => {
+            realexceptbits = _get_null_fd_set();
+            unrealarray[2] = HashSet::new();
+        }
+    }
+
+    Ok((newnfds, realreadbits, realwritebits, realexceptbits, unrealarray, mappingtable))
+    
+}
+
+
+// helper to call after calling select beneath you.  returns the fd_sets you 
+// need for your return from a select call and the number of unique flags
+// set...
+#[doc = include_str!("../docs/get_virtual_bitmasks_from_select_result.md")]
+pub fn get_virtual_bitmasks_from_select_result(nfds:u64, readbits:fd_set, writebits:fd_set, exceptbits:fd_set,unrealreadset:HashSet<u64>, unrealwriteset:HashSet<u64>, unrealexceptset:HashSet<u64>, mappingtable:HashMap<u64,u64>) -> Result<(u64, fd_set, fd_set, fd_set),threei::RetVal> {
+
+    // Note, I don't need the cage_id here because I have the mappingtable...
+
+    if nfds >= FD_PER_PROCESS_MAX {
+        panic!("This shouldn't be possible because we shouldn't have returned this previously")
+    }
+
+    let mut flagsset = 0;
+
+    let mut virtreadbits = _init_fd_set();
+    // We'll do the same basic thing for all three
+    for bit in 0..nfds as usize {
+        let pos = bit as u64;
+        if _fd_isset(pos,&readbits)&& !_fd_isset(*mappingtable.get(&pos).unwrap(),&virtreadbits) {
+            flagsset+=1;
+            println!("{:}",pos);
+            _fd_set(*mappingtable.get(&pos).unwrap(),&mut virtreadbits);
+        }
+    }
+    for virtfd in unrealreadset {
+        if !_fd_isset(virtfd,&virtreadbits) {
+            flagsset+=1;
+            _fd_set(virtfd,&mut virtreadbits);
+        }
+    }
+
+    // Now write...
+    let mut virtwritebits = _init_fd_set();
+    for bit in 0..nfds as usize {
+        let pos = bit as u64;
+        if _fd_isset(pos,&writebits)&& !_fd_isset(*mappingtable.get(&pos).unwrap(),&virtwritebits) {
+            flagsset+=1;
+            _fd_set(*mappingtable.get(&pos).unwrap(),&mut virtwritebits);
+        }
+    }
+    for virtfd in unrealwriteset {
+        if !_fd_isset(virtfd,&virtwritebits) {
+            flagsset+=1;
+            _fd_set(virtfd,&mut virtwritebits);
+        }
+    }
+
+
+    // Now except...
+    let mut virtexceptbits = _init_fd_set();
+    for bit in 0..nfds as usize {
+        let pos = bit as u64;
+        if _fd_isset(pos,&exceptbits)&& !_fd_isset(*mappingtable.get(&pos).unwrap(),&virtexceptbits) {
+            flagsset+=1;
+            _fd_set(*mappingtable.get(&pos).unwrap(),&mut virtexceptbits);
+        }
+    }
+    for virtfd in unrealexceptset {
+        if !_fd_isset(virtfd,&virtexceptbits) {
+            flagsset+=1;
+            _fd_set(virtfd,&mut virtexceptbits);
+        }
+    }
+
+
+    Ok((flagsset,virtreadbits,virtwritebits,virtexceptbits))
 }
 
 
