@@ -9,8 +9,9 @@ use dashmap::DashMap;
 
 use lazy_static::lazy_static;
 
-// needed for select
+// data structure needed for select
 use libc::fd_set;
+
 
 use std::collections::HashMap;
 
@@ -687,6 +688,77 @@ pub fn get_virtual_bitmasks_from_select_result(nfds:u64, readbits:fd_set, writeb
 
     Ok((flagsset,virtreadbits,virtwritebits,virtexceptbits))
 }
+
+
+
+/********************** POLL SPECIFIC FUNCTIONS **********************/
+
+// helper to call before calling poll beneath you.  replaces the fds in 
+// the poll struct with virtual versions and returns the items you need
+// to check yourself...
+#[doc = include_str!("../docs/convert_virtualfds_to_real.md")]
+pub fn convert_virtualfds_to_real(cageid:u64, virtualfds:Vec<u64>) -> (Vec<u64>, Vec<(u64,u64)>, Vec<u64>, HashMap<u64,u64>) {
+
+    if !FDTABLE.contains_key(&cageid) {
+        panic!("Unknown cageid in fdtable access");
+    }
+
+    let mut unrealvec = Vec::new();
+    let mut realvec = Vec::new();
+    let mut invalidvec = Vec::new();
+    let thefdarray = *FDTABLE.get(&cageid).unwrap();
+    let mut mappingtable:HashMap<u64,u64> = HashMap::new();
+
+    // BUG?: I'm ignoring the fact that virtualfds can show up multiple times.
+    // I'm not sure this actually matters, but I didn't think hard about it.
+    for virtfd in virtualfds {
+        match thefdarray[virtfd as usize] {
+            Some(entry) => {
+                // always append the value here.  NO_REAL_FD will be added
+                // in the appropriate places to tell them to handle those calls
+                // themself.  
+                realvec.push(entry.realfd);
+                if entry.realfd == NO_REAL_FD {
+                    unrealvec.push((virtfd,entry.optionalinfo));
+                }
+                else{
+                    mappingtable.insert(entry.realfd, virtfd);
+                }
+            }
+            None => {
+                // Add this because they need to handle it if POLLNVAL is set.
+                // An exception should not be raised!!!
+                realvec.push(INVALID_FD);
+                invalidvec.push(virtfd);
+            }
+        }
+    }
+
+    (realvec, unrealvec, invalidvec, mappingtable)
+}
+
+
+
+// helper to call after calling poll.  replaces the realfds the vector
+// with virtual ones...
+#[doc = include_str!("../docs/convert_realfds_back_to_virtual.md")]
+pub fn convert_realfds_back_to_virtual(realfds:Vec<u64>, mappingtable:HashMap<u64,u64>) -> Vec<u64> {
+
+    // I don't care what cage was used, and don't need to lock anything...
+    // I have the mappingtable!
+    
+    let mut virtvec = Vec::new();
+
+    for realfd in realfds {
+        virtvec.push(*mappingtable.get(&realfd).unwrap());
+    }
+
+    virtvec
+}
+
+
+
+
 
 
 /********************** TESTING HELPER FUNCTION **********************/
