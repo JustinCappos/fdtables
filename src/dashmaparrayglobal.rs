@@ -548,6 +548,10 @@ fn _do_bitmods(myfdarray:[Option<FDTableEntry>;FD_PER_PROCESS_MAX as usize], nfd
 // to realfds.
 // See: https://man7.org/linux/man-pages/man2/select.2.html for details / 
 // corner cases about the arguments.
+
+// I hate doing these, but don't know how to make this interface better...
+#[allow(clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
 #[doc = include_str!("../docs/get_real_bitmasks_for_select.md")]
 pub fn get_real_bitmasks_for_select(cageid:u64, nfds:u64, readbits:Option<fd_set>, writebits:Option<fd_set>, exceptbits:Option<fd_set>) -> Result<(u64, fd_set, fd_set, fd_set, [HashSet<(u64,u64)>;3], HashMap<u64,u64>),threei::RetVal> {
     
@@ -624,6 +628,10 @@ pub fn get_real_bitmasks_for_select(cageid:u64, nfds:u64, readbits:Option<fd_set
 // helper to call after calling select beneath you.  returns the fd_sets you 
 // need for your return from a select call and the number of unique flags
 // set...
+
+// I hate doing these, but don't know how to make this interface better...
+#[allow(clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
 #[doc = include_str!("../docs/get_virtual_bitmasks_from_select_result.md")]
 pub fn get_virtual_bitmasks_from_select_result(nfds:u64, readbits:fd_set, writebits:fd_set, exceptbits:fd_set,unrealreadset:HashSet<u64>, unrealwriteset:HashSet<u64>, unrealexceptset:HashSet<u64>, mappingtable:HashMap<u64,u64>) -> Result<(u64, fd_set, fd_set, fd_set),threei::RetVal> {
 
@@ -696,6 +704,7 @@ pub fn get_virtual_bitmasks_from_select_result(nfds:u64, readbits:fd_set, writeb
 // helper to call before calling poll beneath you.  replaces the fds in 
 // the poll struct with virtual versions and returns the items you need
 // to check yourself...
+#[allow(clippy::type_complexity)]
 #[doc = include_str!("../docs/convert_virtualfds_to_real.md")]
 pub fn convert_virtualfds_to_real(cageid:u64, virtualfds:Vec<u64>) -> (Vec<u64>, Vec<(u64,u64)>, Vec<u64>, HashMap<u64,u64>) {
 

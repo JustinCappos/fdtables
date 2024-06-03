@@ -510,7 +510,6 @@ mod tests {
         close_virtualfd(threei::TESTING_CAGEID7, SPECIFICVIRTUALFD).unwrap();
     }
 
-
     #[test]
     // check some common poll cases...
     fn check_poll_helpers() {
@@ -535,22 +534,23 @@ mod tests {
         get_specific_virtual_fd(cage_id, 5, NO_REAL_FD, false, 123).unwrap();
         get_specific_virtual_fd(cage_id, 9, 20, true, 0).unwrap();
 
-        let (mut realfds, unrealfds, invalidfds, mappingtable) = convert_virtualfds_to_real(cage_id, vec!(1,3,5,9));
+        let (mut realfds, unrealfds, invalidfds, mappingtable) =
+            convert_virtualfds_to_real(cage_id, vec![1, 3, 5, 9]);
 
-        assert_eq!(realfds.len(),4);
-        assert_eq!(unrealfds.len(),1);
-        assert_eq!(invalidfds.len(),1);
-        assert_eq!(realfds,vec!(INVALID_FD,7,NO_REAL_FD,20));
-        assert_eq!(invalidfds,vec!(1));
-        assert_eq!(unrealfds,vec!((5,123)));
+        assert_eq!(realfds.len(), 4);
+        assert_eq!(unrealfds.len(), 1);
+        assert_eq!(invalidfds.len(), 1);
+        assert_eq!(realfds, vec!(INVALID_FD, 7, NO_REAL_FD, 20));
+        assert_eq!(invalidfds, vec!(1));
+        assert_eq!(unrealfds, vec!((5, 123)));
 
         // Toss out the unreal and invalid ones...
         realfds.retain(|&realfd| realfd != NO_REAL_FD && realfd != INVALID_FD);
 
         // poll(...)  // let's pretend that realfd 7 had its event triggered...
-        let newrealfds = convert_realfds_back_to_virtual(vec!(7),mappingtable);
+        let newrealfds = convert_realfds_back_to_virtual(vec![7], mappingtable);
         // virtfd 3 should be returned
-        assert_eq!(newrealfds,vec!(3));
+        assert_eq!(newrealfds, vec!(3));
     }
 
     #[test]
