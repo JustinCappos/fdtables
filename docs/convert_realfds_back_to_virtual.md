@@ -29,6 +29,6 @@ realfds.retain(|&realfd| realfd != NO_REAL_FD && realfd != INVALID_FD);
 // poll(...)  // let's pretend that realfd 7 had its event triggered...
 let newrealfds = convert_realfds_back_to_virtual(vec!(7),mappingtable);
 // virtfd 3 should be returned
-assert_eq!(newrealfds,vec!(3))
+assert_eq!(newrealfds,vec!(3));
 
 ```
