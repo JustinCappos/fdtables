@@ -378,6 +378,8 @@ pub fn empty_fds_for_exec(cageid: u64) {
 
 }
 
+/******************* CLOSE SPECIFIC FUNCTIONALITY *******************/
+
 // Helper for close.  Returns a tuple of realfd, number of references
 // remaining.
 #[doc = include_str!("../docs/close_virtualfd.md")]
@@ -431,32 +433,6 @@ pub fn register_close_handlers(intermediate_handler: fn(u64), final_handler: fn(
     closehandlers.unreal_handler = unreal_handler;
 }
 
-// Helper to initialize / empty out state so we can test with a clean system...
-// only used when testing...
-//
-// I'm cleaning up "poisoned" mutexes here so that I can handle tests that 
-// panic
-#[doc(hidden)]
-pub fn refresh() {
-    let mut fdtable = GLOBALFDTABLE.lock().unwrap_or_else(|e| {
-        GLOBALFDTABLE.clear_poison();
-        e.into_inner()
-    });
-    fdtable.clear();
-    fdtable.insert(threei::TESTING_CAGEID, HashMap::new());
-    let mut closehandlers = CLOSEHANDLERTABLE.lock().unwrap_or_else(|e| {
-        CLOSEHANDLERTABLE.clear_poison();
-        e.into_inner()
-    });
-    closehandlers.intermediate_handler = NULL_FUNC;
-    closehandlers.final_handler = NULL_FUNC;
-    closehandlers.unreal_handler = NULL_FUNC;
-    let mut _realfdcount = GLOBALREALFDCOUNT.lock().unwrap_or_else(|e| {
-        GLOBALREALFDCOUNT.clear_poison();
-        e.into_inner()
-    });
-}
-
 // Helpers to track the count of times each realfd is used
 #[doc(hidden)]
 fn _decrement_realfd(realfd:u64) -> u64 {
@@ -502,3 +478,33 @@ fn _increment_realfd(realfd:u64) -> u64 {
         }
     }
 }
+
+
+/********************** TESTING HELPER FUNCTION **********************/
+
+// Helper to initialize / empty out state so we can test with a clean system...
+// only used when testing...
+//
+// I'm cleaning up "poisoned" mutexes here so that I can handle tests that 
+// panic
+#[doc(hidden)]
+pub fn refresh() {
+    let mut fdtable = GLOBALFDTABLE.lock().unwrap_or_else(|e| {
+        GLOBALFDTABLE.clear_poison();
+        e.into_inner()
+    });
+    fdtable.clear();
+    fdtable.insert(threei::TESTING_CAGEID, HashMap::new());
+    let mut closehandlers = CLOSEHANDLERTABLE.lock().unwrap_or_else(|e| {
+        CLOSEHANDLERTABLE.clear_poison();
+        e.into_inner()
+    });
+    closehandlers.intermediate_handler = NULL_FUNC;
+    closehandlers.final_handler = NULL_FUNC;
+    closehandlers.unreal_handler = NULL_FUNC;
+    let mut _realfdcount = GLOBALREALFDCOUNT.lock().unwrap_or_else(|e| {
+        GLOBALREALFDCOUNT.clear_poison();
+        e.into_inner()
+    });
+}
+

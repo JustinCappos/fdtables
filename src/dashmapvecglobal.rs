@@ -591,7 +591,6 @@ pub fn get_real_bitmasks_for_select(cageid:u64, nfds:u64, readbits:Option<fd_set
 
     Ok((newnfds, resultvec[0], resultvec[1], resultvec[2], unrealarray, mappingtable))
 
-
 }
 
 
