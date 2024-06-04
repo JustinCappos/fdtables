@@ -9,19 +9,7 @@ use dashmap::DashMap;
 
 use lazy_static::lazy_static;
 
-// data structure needed for select
-use libc::fd_set;
-
-
 use std::collections::HashMap;
-
-use std::collections::HashSet;
-
-// Using "max" for select...
-use std::cmp;
-
-// needed for select
-use std::mem;
 
 use std::sync::Mutex;
 
@@ -477,6 +465,12 @@ fn _increment_realfd(realfd:u64) -> u64 {
 
 
 /***************   Code for handling select() ****************/
+
+use libc::fd_set;
+use std::collections::HashSet;
+use std::cmp;
+use std::mem;
+
 // Helper to get an empty fd_set.  Helper function to isolate unsafe code, 
 // etc.
 pub fn _init_fd_set() -> fd_set {
@@ -502,16 +496,6 @@ pub fn _fd_set(fd:u64, thisfdset:&mut fd_set) {
 
 pub fn _fd_isset(fd:u64, thisfdset:&fd_set) -> bool {
     unsafe{libc::FD_ISSET(fd as i32,thisfdset)}
-}
-
-pub fn _fd_print(thisfdset:&fd_set) {
-    println!("start");
-    for bit in 0..FD_PER_PROCESS_MAX {
-        if _fd_isset(bit, thisfdset) {
-            println!("{}",bit);
-        }
-    }
-    println!("end");
 }
 
 // Computes the bitmodifications and returns a (maxnfds, unrealset) tuple...
@@ -570,18 +554,16 @@ pub fn get_real_bitmasks_for_select(cageid:u64, nfds:u64, readbits:Option<fd_set
     // dashmaps are lockless, but usually I would grab a lock on the fdtable
     // here...  
     let binding = FDTABLE.get(&cageid).unwrap();
-    let thefdvec = binding.value().clone();
+    let thefdvec = *binding.value();
 
         // putting results in a vec was the cleanest way I found to do this..
     let mut resultvec = Vec::new();
 
-    let mut unrealoffset = 0;
-
-    for inset in [readbits,writebits, exceptbits] {
+    for (unrealoffset, inset) in [readbits,writebits, exceptbits].into_iter().enumerate() {
         match inset {
             Some(virtualbits) => {
                 let mut retset = _init_fd_set();
-                let (thisnfds,myunrealhashset) = _do_bitmods(thefdvec.clone(),nfds,virtualbits, &mut retset,&mut mappingtable)?;
+                let (thisnfds,myunrealhashset) = _do_bitmods(thefdvec,nfds,virtualbits, &mut retset,&mut mappingtable)?;
                 resultvec.push(retset);
                 newnfds = cmp::max(thisnfds, newnfds);
                 unrealarray[unrealoffset] = myunrealhashset;
@@ -593,7 +575,6 @@ pub fn get_real_bitmasks_for_select(cageid:u64, nfds:u64, readbits:Option<fd_set
                 unrealarray[unrealoffset] = HashSet::new();
             }
         }
-        unrealoffset+=1;
     }
 
     Ok((newnfds, resultvec[0], resultvec[1], resultvec[2], unrealarray, mappingtable))
@@ -626,7 +607,6 @@ pub fn get_virtual_bitmasks_from_select_result(nfds:u64, readbits:fd_set, writeb
             let pos = bit as u64;
             if _fd_isset(pos,&inset)&& !_fd_isset(*mappingtable.get(&pos).unwrap(),&retbits) {
                 flagsset+=1;
-                println!("{:}",pos);
                 _fd_set(*mappingtable.get(&pos).unwrap(),&mut retbits);
             }
         }
