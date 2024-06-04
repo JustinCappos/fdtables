@@ -1,2 +1,2 @@
-mod vanillaglobal;
-pub use crate::vanillaglobal::*;
+mod dashmaparrayglobal;
+pub use crate::dashmaparrayglobal::*;
