@@ -565,79 +565,32 @@ pub fn get_real_bitmasks_for_select(cageid:u64, nfds:u64, readbits:Option<fd_set
     let binding = FDTABLE.get(&cageid).unwrap();
     let thefdvec = binding.value().clone();
 
-    // iterate through the sets...
-//    for (inset,mut retset) in [(readbits,realreadbits), (writebits,realwritebits), (exceptbits,realexceptbits)] {
-//      I can't figure out how to borrow what I need here to make this
-//      work well.
-//
-//      I've written three identical loops instead.
+    // putting results in a vec was the cleanest way I found to do this..
+    let mut resultvec = Vec::new();
 
-/*    let mut realreadbits:fd_set = _init_fd_set();
-    let mut realwritebits:fd_set = _init_fd_set();
-    let mut realexceptbits:fd_set = _init_fd_set();
+    let mut unrealoffset = 0;
 
-    let mut items = &mut [(readbits, realreadbits, 0),
-        (writebits,realwritebits,1),
-        (exceptbits, realexceptbits,2),];
-
-    for (inset, mut retset, unrealoffset) in items.iter_mut() {
+    for inset in [readbits,writebits, exceptbits] {
         match inset {
             Some(virtualbits) => {
-                retset = _init_fd_set();
-                let (thisnfds,myunrealhashset) = _do_bitmods(thefdvec.clone(),nfds,*virtualbits, &mut retset,&mut mappingtable)?;
+                let mut retset = _init_fd_set();
+                let (thisnfds,myunrealhashset) = _do_bitmods(thefdvec.clone(),nfds,virtualbits, &mut retset,&mut mappingtable)?;
+                resultvec.push(retset);
                 newnfds = cmp::max(thisnfds, newnfds);
-                unrealarray[*unrealoffset] = myunrealhashset;
+                unrealarray[unrealoffset] = myunrealhashset;
             }
             None => {
-                retset = _get_null_fd_set();
-                unrealarray[*unrealoffset] = HashSet::new();
+                // This item is null.  No unreal items 
+                // BUG: Need to actually return null!
+                resultvec.push(_get_null_fd_set());
+                unrealarray[unrealoffset] = HashSet::new();
             }
         }
-    }*/
+        unrealoffset+=1;
+    } 
 
-    let mut realreadbits:fd_set;
-    match readbits {
-        Some(virtualbits) => {
-            realreadbits = _init_fd_set();
-            let (thisnfds,myunrealhashset) = _do_bitmods(thefdvec.clone(),nfds,virtualbits, &mut realreadbits,&mut mappingtable)?;
-            newnfds = cmp::max(thisnfds, newnfds);
-            unrealarray[0] = myunrealhashset;
-        }
-        None => {
-            realreadbits = _get_null_fd_set();
-            unrealarray[0] = HashSet::new();
-        }
-    }
+    Ok((newnfds, resultvec[0], resultvec[1], resultvec[2], unrealarray, mappingtable))
 
-    let mut realwritebits:fd_set;
-    match writebits {
-        Some(virtualbits) => {
-            realwritebits = _init_fd_set();
-            let (thisnfds,myunrealhashset) = _do_bitmods(thefdvec.clone(),nfds,virtualbits, &mut realwritebits,&mut mappingtable)?;
-            newnfds = cmp::max(thisnfds, newnfds);
-            unrealarray[1] = myunrealhashset;
-        }
-        None => {
-            realwritebits = _get_null_fd_set();
-            unrealarray[1] = HashSet::new();
-        }
-    }
-
-    let mut realexceptbits:fd_set;
-    match exceptbits {
-        Some(virtualbits) => {
-            realexceptbits = _init_fd_set();
-            let (thisnfds,myunrealhashset) = _do_bitmods(thefdvec.clone(),nfds,virtualbits, &mut realexceptbits,&mut mappingtable)?;
-            newnfds = cmp::max(thisnfds, newnfds);
-            unrealarray[2] = myunrealhashset;
-        }
-        None => {
-            realexceptbits = _get_null_fd_set();
-            unrealarray[2] = HashSet::new();
-        }
-    }
-
-    Ok((newnfds, realreadbits, realwritebits, realexceptbits, unrealarray, mappingtable))
 
 }
 
@@ -659,59 +612,28 @@ pub fn get_virtual_bitmasks_from_select_result(nfds:u64, readbits:fd_set, writeb
     }
 
     let mut flagsset = 0;
+    let mut retvec = Vec::new();
 
-    let mut virtreadbits = _init_fd_set();
-    // We'll do the same basic thing for all three
-    for bit in 0..nfds as usize {
-        let pos = bit as u64;
-        if _fd_isset(pos,&readbits)&& !_fd_isset(*mappingtable.get(&pos).unwrap(),&virtreadbits) {
-            flagsset+=1;
-            println!("{:}",pos);
-            _fd_set(*mappingtable.get(&pos).unwrap(),&mut virtreadbits);
+    for (inset,unrealset) in [(readbits,unrealreadset), (writebits,unrealwriteset), (exceptbits,unrealexceptset)] {
+        let mut retbits = _init_fd_set();
+        for bit in 0..nfds as usize {
+            let pos = bit as u64;
+            if _fd_isset(pos,&inset)&& !_fd_isset(*mappingtable.get(&pos).unwrap(),&retbits) {
+                flagsset+=1;
+                println!("{:}",pos);
+                _fd_set(*mappingtable.get(&pos).unwrap(),&mut retbits);
+            }
         }
-    }
-    for virtfd in unrealreadset {
-        if !_fd_isset(virtfd,&virtreadbits) {
-            flagsset+=1;
-            _fd_set(virtfd,&mut virtreadbits);
+        for virtfd in unrealset {
+            if !_fd_isset(virtfd,&retbits) {
+                flagsset+=1;
+                _fd_set(virtfd,&mut retbits);
+            }
         }
-    }
-
-    // Now write...
-    let mut virtwritebits = _init_fd_set();
-    for bit in 0..nfds as usize {
-        let pos = bit as u64;
-        if _fd_isset(pos,&writebits)&& !_fd_isset(*mappingtable.get(&pos).unwrap(),&virtwritebits) {
-            flagsset+=1;
-            _fd_set(*mappingtable.get(&pos).unwrap(),&mut virtwritebits);
-        }
-    }
-    for virtfd in unrealwriteset {
-        if !_fd_isset(virtfd,&virtwritebits) {
-            flagsset+=1;
-            _fd_set(virtfd,&mut virtwritebits);
-        }
+        retvec.push(retbits);
     }
 
-
-    // Now except...
-    let mut virtexceptbits = _init_fd_set();
-    for bit in 0..nfds as usize {
-        let pos = bit as u64;
-        if _fd_isset(pos,&exceptbits)&& !_fd_isset(*mappingtable.get(&pos).unwrap(),&virtexceptbits) {
-            flagsset+=1;
-            _fd_set(*mappingtable.get(&pos).unwrap(),&mut virtexceptbits);
-        }
-    }
-    for virtfd in unrealexceptset {
-        if !_fd_isset(virtfd,&virtexceptbits) {
-            flagsset+=1;
-            _fd_set(virtfd,&mut virtexceptbits);
-        }
-    }
-
-
-    Ok((flagsset,virtreadbits,virtwritebits,virtexceptbits))
+    Ok((flagsset,retvec[0],retvec[1],retvec[2]))
 }
 
 
