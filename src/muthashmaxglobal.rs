@@ -116,6 +116,24 @@ lazy_static! {
     };
 }
 
+#[doc = include_str!("../docs/init_empty_cage.md")]
+pub fn init_empty_cage(cageid: u64) {
+    let mut fdtable = GLOBALFDTABLE.lock().unwrap();
+
+    if fdtable.contains_key(&cageid) {
+        panic!("Known cageid in fdtable access");
+    }
+
+    let newmap = HashMap::new();
+    let emptytab = FDTable{
+        highestneverusedfd:0,
+        thisfdtable:newmap,
+    };
+
+    fdtable.insert(cageid,emptytab);
+
+}
+
 #[doc = include_str!("../docs/translate_virtual_fd.md")]
 pub fn translate_virtual_fd(cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {
     // Get the lock on the fdtable...  I'm not handling "poisoned locks" now

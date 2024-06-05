@@ -99,7 +99,17 @@ lazy_static! {
         };
         Mutex::new(c)
     };
- }
+}
+
+#[doc = include_str!("../docs/init_empty_cage.md")]
+pub fn init_empty_cage(cageid: u64) {
+
+    if FDTABLE.contains_key(&cageid) {
+        panic!("Known cageid in fdtable access");
+    }
+
+    FDTABLE.insert(cageid,vec!(Option::None;FD_PER_PROCESS_MAX as usize));
+}
 
 #[doc = include_str!("../docs/translate_virtual_fd.md")]
 pub fn translate_virtual_fd(cageid: u64, virtualfd: u64) -> Result<u64, threei::RetVal> {

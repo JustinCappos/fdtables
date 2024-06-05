@@ -829,6 +829,30 @@ mod tests {
 
     #[test]
     #[should_panic]
+    // checks that init correctly panics
+    fn check_init_panics() {
+        let mut _thelock: MutexGuard<bool>;
+
+        loop {
+            match TESTMUTEX.lock() {
+                Err(_) => {
+                    TESTMUTEX.clear_poison();
+                }
+                Ok(val) => {
+                    _thelock = val;
+                    break;
+                }
+            }
+        }
+        refresh();
+
+        copy_fdtable_for_cage(threei::TESTING_CAGEID, threei::TESTING_CAGEID11).unwrap();
+        // panic!
+        init_empty_cage(threei::TESTING_CAGEID11);
+    }
+
+    #[test]
+    #[should_panic]
     // Do we close a virtualfd when we call get_specific on it?
     fn check_get_specific_virtual_fd_close_panic_test() {
         let mut _thelock: MutexGuard<bool>;
