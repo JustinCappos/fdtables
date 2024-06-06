@@ -486,7 +486,7 @@ mod tests {
         let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
         get_specific_virtual_fd(threei::TESTING_CAGEID, SPECIFICVIRTUALFD, REALFD, false, 10)
             .unwrap();
-        let _ = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, true, 10).unwrap();
+        let cloexecfd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, true, 10).unwrap();
         // and a different realfd
         let _my_virt_fd3 =
             get_unused_virtual_fd(threei::TESTING_CAGEID, ANOTHERREALFD, false, 10).unwrap();
@@ -499,6 +499,14 @@ mod tests {
 
         // let's simulate exec, which should close one of these...
         empty_fds_for_exec(threei::TESTING_CAGEID7);
+
+        // but the copy in the original cage table should remain, so this 
+        // shouldn't error...
+        translate_virtual_fd(threei::TESTING_CAGEID,cloexecfd).unwrap();
+
+        // However, the other should be gone...
+        // shouldn't error...
+        assert!(translate_virtual_fd(threei::TESTING_CAGEID7,cloexecfd).is_err());
 
         // Let's simulate exit on the initial cage, to close two of them...
         remove_cage_from_fdtable(threei::TESTING_CAGEID);
