@@ -1,15 +1,15 @@
 Helper function for setting the close on exec (CLOEXEC) flag.
 
-The reason this information is needed is because the [empty_fds_for_exec]
+The reason this information is needed is because the [`empty_fds_for_exec`]
 call needs to know which fds should be closed and which should be retained.
 
-Panics:
-    Unknown cageid
+# Panics
+  Unknown cageid
 
-Errors:
-    EBADFD if the virtual file descriptor is incorrect
+# Errors
+  EBADFD if the virtual file descriptor is incorrect
 
-Example:
+# Example
 ```
 # use fdtables::*;
 # let cage_id = threei::TESTING_CAGEID;

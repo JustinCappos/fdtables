@@ -5,7 +5,7 @@ call to select.  It takes a set of virtual bitmasks and translates them to
 real bitmasks.  For each non-real fd mentioned, it returns the virtual fd / 
 optionalinfo tuple so the caller can process them.  After receiving these real 
 bitmasks, the caller should call select underneath.  The mapping table return 
-value is needed by [get_virtual_bitmasks_from_select_result] to revert the 
+value is needed by [`get_virtual_bitmasks_from_select_result`] to revert the 
 realfds back to virtualfds.
 
 
@@ -13,14 +13,14 @@ NOTE: If the same realfd is behind multiple virtualfds, only one of those
 virtualfds will be triggered.  I need to investigate how Linux behaves, but
 from what I can see from a quick search, the behavior here is undefined.
 
-Panics:
-    Invalid cageid
+# Panics
+  Invalid cageid
 
-Errors:
-    This will return EBADF if any fd isn't valid
-    This will return EINVAL if nfds is >= the maximum file descriptor limit
+# Errors
+  This will return EBADF if any fd isn't valid
+  This will return EINVAL if nfds is >= the maximum file descriptor limit
 
-Example:
+# Example
 ```
 # use fdtables::*;
 # let cage_id = threei::TESTING_CAGEID;

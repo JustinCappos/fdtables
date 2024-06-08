@@ -3,18 +3,18 @@ Translate the real bitmasks returned by select into virtual ones for the caller
 This is a helper function for select called after select is called.  After 
 a select call returns, there are a series of realfd bitmasks which need to be 
 translated to virtualfd bitmasks (as this is what the caller expects).  Also, 
-three HashSets of virtualfds may be provided, which allows handling of 
-non-realfds.  See also: [get_real_bitmasks_for_select].  (Note, you must use 
+three `HashSet`s of virtualfds may be provided, which allows handling of 
+non-realfds.  See also: [`get_real_bitmasks_for_select`].  (Note, you must use 
 the same mapping table from your prior call when using this function.)
 
-Panics:
-    mapping_table is missing elements from the realfd's.
-    nfds is larger than FD_PER_PROCESS_MAX
+# Panics
+  `mapping_table` is missing elements from the realfd's.
+  nfds is larger than `FD_PER_PROCESS_MAX`
 
-Errors:
-    None
+# Errors
+  None
 
-Example:
+# Example
 ```
 # use fdtables::*;
 # use std::collections::HashSet;
@@ -36,5 +36,5 @@ let (newnfds, realreadbits, realwritebits, realexceptbits, unrealset, mappingtab
 # let mut unrealreadhashes = HashSet::new();
 # unrealreadhashes.insert(5);
 // we would call:
-let (amount, virtread, virtwrite, virtexcept) = get_virtual_bitmasks_from_select_result(8,realreadbits,realwritebits,realexceptbits, unrealreadhashes, HashSet::new(), HashSet::new(),mappingtable).unwrap();
+let (amount, virtread, virtwrite, virtexcept) = get_virtual_bitmasks_from_select_result(8,realreadbits,realwritebits,realexceptbits, unrealreadhashes, HashSet::new(), HashSet::new(),&mappingtable).unwrap();
 ```

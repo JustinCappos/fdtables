@@ -2,18 +2,18 @@ Convert real fds back to virtual, likely after a poll or ppoll command.
 
 This is a helper function for poll / ppoll which is called after the actual
 call is made.  It uses the mapping table from the previous 
-[convert_virtualfds_to_real] command to translate a vector of realfds
-back to virtual.  The vector should not contain any NO_REAL_FD values or 
-INVALID_FD values.
+[`convert_virtualfds_to_real`] command to translate a vector of realfds
+back to virtual.  The vector should not contain any `NO_REAL_FD` values or 
+`INVALID_FD` values.
 
-Panics:
-    Invalid mappingtable
-    NO_REAL_FD, INVALID_FD, or unknown value provided
+# Panics
+  Invalid mappingtable
+  `NO_REAL_FD`, `INVALID_FD`, or unknown value provided
 
-Errors:
-    None
+# Errors
+  None
 
-Example:
+# Example
 ```
 # use fdtables::*;
 # let cage_id = threei::TESTING_CAGEID;
@@ -27,7 +27,7 @@ let (mut realfds, unrealfds, invalidfds, mappingtable) = convert_virtualfds_to_r
 realfds.retain(|&realfd| realfd != NO_REAL_FD && realfd != INVALID_FD);
 
 // poll(...)  // let's pretend that realfd 7 had its event triggered...
-let newrealfds = convert_realfds_back_to_virtual(vec!(7),mappingtable);
+let newrealfds = convert_realfds_back_to_virtual(vec!(7),&mappingtable);
 // virtfd 3 should be returned
 assert_eq!(newrealfds,vec!(3));
 

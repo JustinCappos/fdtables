@@ -17,16 +17,6 @@ pub use super::commonconstants::*;
 #[doc(hidden)]
 pub const ALGONAME: &str = "MutHashMaxGlobal";
 
-// These are the values we look up with at the end...
-#[doc = include_str!("../docs/fdtableentry.md")]
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct FDTableEntry {
-    pub realfd: u64, // underlying fd (may be a virtual fd below us or
-    // a kernel fd)
-    pub should_cloexec: bool, // should I close this when exec is called?
-    pub optionalinfo: u64,    // user specified / controlled data
-}
-
 #[derive(Clone, Debug)]
 struct FDTable {
     highestneverusedfd: u64, // Never resets (even after close).  Used to 
@@ -96,10 +86,6 @@ struct CloseHandlers {
     final_handler: fn(u64),
     unreal_handler: fn(u64),
 }
-
-// Seems sort of like a constant...  I'm not sure if this is bad form or not...
-#[allow(non_snake_case)]
-pub fn NULL_FUNC(_:u64) { }
 
 lazy_static! {
     // This holds the user registered handlers they want to have called when
@@ -537,6 +523,7 @@ use std::mem;
 
 // Helper to get an empty fd_set.  Helper function to isolate unsafe code,
 // etc.
+#[doc(hidden)]
 pub fn _init_fd_set() -> fd_set {
     let raw_fd_set:fd_set;
     unsafe {
@@ -548,21 +535,25 @@ pub fn _init_fd_set() -> fd_set {
 }
 
 // Helper to get a null pointer.
+#[doc(hidden)]
 pub fn _get_null_fd_set() -> fd_set {
     //unsafe{ptr::null_mut()}
     // BUG!!!  Need to fix this later.
     _init_fd_set()
 }
 
+#[doc(hidden)]
 pub fn _fd_set(fd:u64, thisfdset:&mut fd_set) {
     unsafe{libc::FD_SET(fd as i32,thisfdset)}
 }
 
+#[doc(hidden)]
 pub fn _fd_isset(fd:u64, thisfdset:&fd_set) -> bool {
     unsafe{libc::FD_ISSET(fd as i32,thisfdset)}
 }
 
 // Computes the bitmodifications and returns a (maxnfds, unrealset) tuple...
+#[doc(hidden)]
 fn _do_bitmods(myfdmap:HashMap<u64,FDTableEntry>, nfds:u64, infdset: fd_set, thisfdset: &mut fd_set, mappingtable: &mut HashMap<u64,u64>) -> Result<(u64,HashSet<(u64,u64)>),threei::RetVal> {
     let mut unrealhashset:HashSet<(u64,u64)> = HashSet::new();
     // Iterate through the infdset and set those values as is appropriate
@@ -651,7 +642,7 @@ pub fn get_real_bitmasks_for_select(cageid:u64, nfds:u64, readbits:Option<fd_set
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
 #[doc = include_str!("../docs/get_virtual_bitmasks_from_select_result.md")]
-pub fn get_virtual_bitmasks_from_select_result(nfds:u64, readbits:fd_set, writebits:fd_set, exceptbits:fd_set,unrealreadset:HashSet<u64>, unrealwriteset:HashSet<u64>, unrealexceptset:HashSet<u64>, mappingtable:HashMap<u64,u64>) -> Result<(u64, fd_set, fd_set, fd_set),threei::RetVal> {
+pub fn get_virtual_bitmasks_from_select_result(nfds:u64, readbits:fd_set, writebits:fd_set, exceptbits:fd_set,unrealreadset:HashSet<u64>, unrealwriteset:HashSet<u64>, unrealexceptset:HashSet<u64>, mappingtable:&HashMap<u64,u64>) -> Result<(u64, fd_set, fd_set, fd_set),threei::RetVal> {
 
     // Note, I don't need the cage_id here because I have the mappingtable...
 
@@ -740,7 +731,7 @@ pub fn convert_virtualfds_to_real(cageid:u64, virtualfds:Vec<u64>) -> (Vec<u64>,
 // helper to call after calling poll.  replaces the realfds the vector
 // with virtual ones...
 #[doc = include_str!("../docs/convert_realfds_back_to_virtual.md")]
-pub fn convert_realfds_back_to_virtual(realfds:Vec<u64>, mappingtable:HashMap<u64,u64>) -> Vec<u64> {
+pub fn convert_realfds_back_to_virtual(realfds:Vec<u64>, mappingtable:&HashMap<u64,u64>) -> Vec<u64> {
 
     // I don't care what cage was used, and don't need to lock anything...
     // I have the mappingtable!

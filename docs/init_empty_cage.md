@@ -1,15 +1,15 @@
 Creates an empty cage's table in the fdtable.  No virtual fds are created.
 
 This is useful for initialization and testing.  Creates an empty cage table.
-See [copy_fdtable_for_cage] to handle fork().
+See [`copy_fdtable_for_cage`] to handle `fork()`.
 
-Panics:
-    cageid is already used.
+# Panics
+  cageid is already used.
 
-Errors:
-    None
+# Errors
+  None
 
-Example:
+# Example
 ```
 # use fdtables::*;
 # let cage_id = threei::TESTING_CAGEID12;

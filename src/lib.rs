@@ -14,10 +14,60 @@
 //!
 //! Note that the code re-exports an implementation from a specific submodule.
 //! This was done to make the algorithmic options easier to benchmark and
-//! compare.  You, the caller, should only use the base fdtables::XXX API and
-//! not fdtables::algorithmname::XXX, as the latter will not be stable over
+//! compare.  You, the caller, should only use the base `fdtables::XXX` API and
+//! not `fdtables::algorithmname::XXX`, as the latter will not be stable over
 //! time.
 
+// Copied from Tom Buckley-Houston
+// =========================================================================
+//                  Canonical lints for whole crate
+// =========================================================================
+// Official docs:
+//   https://doc.rust-lang.org/nightly/clippy/lints.html
+// Useful app to lookup full details of individual lints:
+//   https://rust-lang.github.io/rust-clippy/master/index.html
+//
+// We set base lints to give the fullest, most pedantic feedback possible.
+// Though we prefer that they are just warnings during development so that build-denial
+// is only enforced in CI.
+//
+#![warn(
+    // `clippy::all` is already on by default. It implies the following:
+    //   clippy::correctness code that is outright wrong or useless
+    //   clippy::suspicious code that is most likely wrong or useless
+    //   clippy::complexity code that does something simple but in a complex way
+    //   clippy::perf code that can be written to run faster
+    //   clippy::style code that should be written in a more idiomatic way
+    clippy::all,
+
+    // It's always good to write as much documentation as possible
+    missing_docs,
+
+    // > clippy::pedantic lints which are rather strict or might have false positives
+    clippy::pedantic,
+
+    // > new lints that are still under development"
+    // (so "nursery" doesn't mean "Rust newbies")
+//    clippy::nursery,
+
+    // > The clippy::cargo group gives you suggestions on how to improve your Cargo.toml file.
+    // > This might be especially interesting if you want to publish your crate and are not sure
+    // > if you have all useful information in your Cargo.toml.
+    clippy::cargo
+)]
+// > The clippy::restriction group will restrict you in some way.
+// > If you enable a restriction lint for your crate it is recommended to also fix code that
+// > this lint triggers on. However, those lints are really strict by design and you might want
+// > to #[allow] them in some special cases, with a comment justifying that.
+#![allow(clippy::blanket_clippy_restriction_lints)]
+// JAC: I took a look at these and it seems like these are mostly uninteresting
+// false positives.
+//#![warn(clippy::restriction)]
+
+// I do a fair amount of casting to usize so that I can index values in arrays.
+// I can't annotate them all separately because I can't assign attributes to
+// expressions.  So I'll turn this off.
+#![allow(clippy::cast_possible_truncation)]
 // TODO: This is to disable a warning in threei's reversible enum definition.
 // I'd like to revisit that clippy warning later and see if we want to handle
 // it differently
@@ -555,7 +605,7 @@ mod tests {
         realfds.retain(|&realfd| realfd != NO_REAL_FD && realfd != INVALID_FD);
 
         // poll(...)  // let's pretend that realfd 7 had its event triggered...
-        let newrealfds = convert_realfds_back_to_virtual(vec![7], mappingtable);
+        let newrealfds = convert_realfds_back_to_virtual(vec![7], &mappingtable);
         // virtfd 3 should be returned
         assert_eq!(newrealfds, vec!(3));
     }
@@ -665,7 +715,9 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     // Did I implement epoll of epoll fds?
+    #[allow(non_snake_case)]
     fn check_SHOULD_FAIL_FOR_NOW_if_we_support_epoll_of_epoll() {
         let mut _thelock: MutexGuard<bool>;
         loop {

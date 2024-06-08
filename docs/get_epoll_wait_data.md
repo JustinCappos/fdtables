@@ -1,21 +1,21 @@
 Waits on epoll.   Only unrealfds will be returned
 
-This call handles epoll_wait.  It only returns unrealfds because epoll_ctl
+This call handles `epoll_wait`.  It only returns unrealfds because `epoll_ctl`
 doesn't support realfds (those get passed down below by the caller).
-It returns a hashmap of \<virtfd,epoll_events\> for the epollfd.
-See [epoll_create_helper] and [try_epoll_ctl] for more details.
+It returns a hashmap of \<virtfd,`epoll_events`\> for the epollfd.
+See [`epoll_create_helper`] and [`try_epoll_ctl`] for more details.
 
 
-Panics:
+# Panics
   cageid does not exist
 
-Errors:
+# Errors
   EBADF  the epollfd doesn't exist.
 
   EINVAL the epollfd isn't an epoll file descriptor.
 
 
-Example:
+# Example
 ```
 # use fdtables::*;
 # let cage_id = threei::TESTING_CAGEID4;

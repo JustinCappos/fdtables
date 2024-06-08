@@ -3,13 +3,13 @@ This is the main virtual -> realfd lookup function for fdtables.
 Converts a virtualfd, which is used in a cage, into the realfd, which 
 is known to whatever is below us, possibly the OS kernel.
 
-Panics:
-    if the cageid does not exist
+# Panics
+  if the cageid does not exist
 
-Errors:
-    if the virtualfd does not exist
+# Errors
+  if the virtualfd does not exist
 
-Example:
+# Example
 ```
 # use fdtables::*;
 # let cage_id = threei::TESTING_CAGEID;

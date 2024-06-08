@@ -1,15 +1,15 @@
-discards a cage (for exit()) and calls the appropriate close handlers
+discards a cage (for `exit()`) and calls the appropriate close handlers
 
 This is mostly used in handling exit, etc.  Calls all of the correct close
 handlers.
 
-Panics:
-    Invalid cageid
+# Panics
+  Invalid cageid
 
-Errors:
-    None
+# Errors
+  None
 
-Example:
+# Example
 ```
 # use fdtables::*;
 # let src_cage_id = threei::TESTING_CAGEID;

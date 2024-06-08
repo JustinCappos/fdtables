@@ -2,15 +2,15 @@ Close a virtual file descriptor, calling the close handler, as appropriate
 
 This is a helper function for close.  It calls the close handler which
 is appropriate given the status of the underlying realfd.  See
-[register_close_handlers] for more information.
+[`register_close_handlers`] for more information.
 
-Panics:
-    Invalid cageid for srccageid
+# Panics
+  Invalid cageid for srccageid
 
-Errors:
-    This will return EBADF if the fd isn't valid
+# Errors
+  This will return EBADF if the fd isn't valid
 
-Example:
+# Example
 ```
 # use fdtables::*;
 # let cage_id = threei::TESTING_CAGEID;

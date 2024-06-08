@@ -3,15 +3,15 @@ Used to get optional information needed by the library importer.
 This is useful if you want to assign some sort of index to virtualfds,
 often if there is no realfd backing them.  For example, if you are 
 implementing in-memory pipe buffers, this could be the position in an 
-array where a ring buffer lives.   See also [set_optionalinfo].
+array where a ring buffer lives.   See also [`set_optionalinfo`].
 
-Panics:
-    Invalid cageid
+# Panics
+  Invalid cageid
 
-Errors:
-    BADFD if the virtualfd doesn't exist
+# Errors
+  BADFD if the virtualfd doesn't exist
 
-Example:
+# Example
 ```
 # use fdtables::*;
 # let cage_id = threei::TESTING_CAGEID;

@@ -3,13 +3,13 @@ gets a copy of a cage's fdtable hashmap
 Utility function that some callers may want.  I'm not sure why this is 
 needed exactly
 
-Panics:
-    Invalid cageid
+# Panics
+  Invalid cageid
 
-Errors:
-    None
+# Errors
+  None
 
-Example:
+# Example
 ```
 # use fdtables::*;
 # let cage_id = threei::TESTING_CAGEID;

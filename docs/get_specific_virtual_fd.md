@@ -2,18 +2,18 @@ This is used to get a specific virtualfd mapping.
 
 Useful for implementing something like dup2.  This closes the destination fd
 if it exists, calling the relevant close handlers.   Use this only if you care 
-which virtualfd you get.  Otherwise use [get_unused_virtual_fd].
+which virtualfd you get.  Otherwise use [`get_unused_virtual_fd`].
 
 Note, if you replace an entry which was the last reference to a realfd, with 
-an entry with that same realfd, the intermediate_close handler is called.
+an entry with that same realfd, the `intermediate_close` handler is called.
 
-Panics:
-    if the cageid does not exist
+# Panics
+  if the cageid does not exist
 
-Errors:
-    returns EBADF if it's not in the range of valid fds.
+# Errors
+  returns EBADF if it's not in the range of valid fds.
 
-Example:
+# Example
 ```
 # use fdtables::*;
 # let cage_id = threei::TESTING_CAGEID;

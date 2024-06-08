@@ -2,6 +2,12 @@
 name = "fdtables"
 version = "0.1.0"
 edition = "2021"
+description = "A file descriptor library for use with Lind."
+repository = "https://github.com/JustinCappos/fdtables"
+readme = "README.md"
+license = "Apache-2.0"
+keywords = ["lind"]
+categories = ["os", "filesystem"]
 
 [dependencies]
 libc = "0.2"

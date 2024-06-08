@@ -1,16 +1,16 @@
 Get a virtualfd mapping to put an item into the fdtable.
 
 This is the overwhelmingly common way to get a virtualfd and should be 
-used essentially everywhere except in cases like dup2(), where you do 
+used essentially everywhere except in cases like `dup2()`, where you do 
 actually care what fd you are assigned.
 
-Panics:
-    if the cageid does not exist
+# Panics
+  if the cageid does not exist
 
-Errors:
-    if the cage has used EMFILE virtual descriptors already, return EMFILE
+# Errors
+  if the cage has used EMFILE virtual descriptors already, return EMFILE
 
-Example:
+# Example
 ```
 # use fdtables::*;
 # let cage_id = threei::TESTING_CAGEID;

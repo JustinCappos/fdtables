@@ -1,3 +1,5 @@
+//! Common constants needed for interface communication.  Contains things
+//! like errno values.
 // Defining a few basic things about the 3i interface here...
 // This needs enough information that we can make calls effectively and
 // so needs errno, etc.
@@ -10,40 +12,58 @@
 // Define some cageid constants that may be useful.  These are not valid for
 // normal use as cageids
 
-pub const INVALID_CAGEID: u64 = 0xfffffffffffffffe;
+#[doc(hidden)]
+pub const INVALID_CAGEID: u64 = 0xffff_ffff_ffff_fffe;
 
 // Used for internal testing.  Not valid for a normal cageid...
-pub const TESTING_CAGEID: u64 = 0xffffffffffffffe0;
-pub const TESTING_CAGEID0: u64 = 0xffffffffffffffe0;
-pub const TESTING_CAGEID1: u64 = 0xffffffffffffffe1;
-pub const TESTING_CAGEID2: u64 = 0xffffffffffffffe2;
-pub const TESTING_CAGEID3: u64 = 0xffffffffffffffe3;
-pub const TESTING_CAGEID4: u64 = 0xffffffffffffffe4;
-pub const TESTING_CAGEID5: u64 = 0xffffffffffffffe5;
-pub const TESTING_CAGEID6: u64 = 0xffffffffffffffe6;
-pub const TESTING_CAGEID7: u64 = 0xffffffffffffffe7;
-pub const TESTING_CAGEID8: u64 = 0xffffffffffffffe8;
-pub const TESTING_CAGEID9: u64 = 0xffffffffffffffe9;
-pub const TESTING_CAGEID10: u64 = 0xffffffffffffffea;
-pub const TESTING_CAGEID11: u64 = 0xffffffffffffffeb;
-pub const TESTING_CAGEID12: u64 = 0xffffffffffffffec;
-pub const TESTING_CAGEID13: u64 = 0xffffffffffffffed;
-pub const TESTING_CAGEID14: u64 = 0xffffffffffffffee;
-pub const TESTING_CAGEID15: u64 = 0xffffffffffffffef;
+#[doc(hidden)]
+pub const TESTING_CAGEID: u64 = 0xffff_ffff_ffff_ffe0;
+#[doc(hidden)]
+pub const TESTING_CAGEID0: u64 = 0xffff_ffff_ffff_ffe0;
+#[doc(hidden)]
+pub const TESTING_CAGEID1: u64 = 0xffff_ffff_ffff_ffe1;
+#[doc(hidden)]
+pub const TESTING_CAGEID2: u64 = 0xffff_ffff_ffff_ffe2;
+#[doc(hidden)]
+pub const TESTING_CAGEID3: u64 = 0xffff_ffff_ffff_ffe3;
+#[doc(hidden)]
+pub const TESTING_CAGEID4: u64 = 0xffff_ffff_ffff_ffe4;
+#[doc(hidden)]
+pub const TESTING_CAGEID5: u64 = 0xffff_ffff_ffff_ffe5;
+#[doc(hidden)]
+pub const TESTING_CAGEID6: u64 = 0xffff_ffff_ffff_ffe6;
+#[doc(hidden)]
+pub const TESTING_CAGEID7: u64 = 0xffff_ffff_ffff_ffe7;
+#[doc(hidden)]
+pub const TESTING_CAGEID8: u64 = 0xffff_ffff_ffff_ffe8;
+#[doc(hidden)]
+pub const TESTING_CAGEID9: u64 = 0xffff_ffff_ffff_ffe9;
+#[doc(hidden)]
+pub const TESTING_CAGEID10: u64 = 0xffff_ffff_ffff_ffea;
+#[doc(hidden)]
+pub const TESTING_CAGEID11: u64 = 0xffff_ffff_ffff_ffeb;
+#[doc(hidden)]
+pub const TESTING_CAGEID12: u64 = 0xffff_ffff_ffff_ffec;
+#[doc(hidden)]
+pub const TESTING_CAGEID13: u64 = 0xffff_ffff_ffff_ffed;
+#[doc(hidden)]
+pub const TESTING_CAGEID14: u64 = 0xffff_ffff_ffff_ffee;
+#[doc(hidden)]
+pub const TESTING_CAGEID15: u64 = 0xffff_ffff_ffff_ffef;
 
-// Return value for system calls...
-pub type RetVal = u64;
-
+#[doc(hidden)]
 macro_rules! reversible_enum {
     ($(#[$settings: meta])* $visibility: vis enum $enumname:ident {
         $($valuename: ident = $value: expr,)*
     }) => {
         $(#[$settings])*
+        #[doc(hidden)]
         $visibility enum $enumname {
             $($valuename = $value,)*
         }
 
         impl $enumname {
+            #[doc(hidden)]
             $visibility fn from_discriminant(v: u64) -> Result<Self, ()> {
                 match v {
                     $($value => Ok($enumname::$valuename),)*
@@ -54,10 +74,15 @@ macro_rules! reversible_enum {
     }
 }
 
+/// Return value for system calls...  Can be errno
+pub type RetVal = u64;
+
 // BUG: ? I don't understand this setup...
 reversible_enum! {
     #[derive(Debug, PartialEq, Eq)]
     #[repr(u64)]
+    /// Errno values for OS calls
+    #[non_exhaustive] // I want to be able to update this later...
     pub enum Errno {
         EPERM = 1,	// Operation not permitted
         ENOENT = 2,     // No such file or directory

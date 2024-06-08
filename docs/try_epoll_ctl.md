@@ -1,36 +1,37 @@
 Modifies an epoll fd to add, remove, or modify a fd.
 
-This is a helper function for epoll_ctl.  It only really operates on the
-fds which are NO_REAL_FD and (?possibly?) EPOLLFD types.  It returns NO_REAL_FD
-if it was able to do epoll_ctl on a locally managed (e.g., a NO_REAL_FD) fd.  
-If called with a virtual fd which maps to a real fd, this returns the realfd.
-See [epoll_create_helper] and [get_epoll_wait_data] for more details.
+This is a helper function for `epoll_ctl`.  It only really operates on the
+fds which are `NO_REAL_FD` and (?possibly?) EPOLLFD types.  It returns 
+`NO_REAL_FD` if it was able to do `epoll_ctl` on a locally managed (e.g., a 
+`NO_REAL_FD`) fd.  If called with a virtual fd which maps to a real fd, this 
+returns the realfd.  See [`epoll_create_helper`] and [`get_epoll_wait_data`] 
+for more details.
 
-Panics:
-    cageid does not exist
+# Panics
+  cageid does not exist
 
-Errors:
+# Errors
   EBADF  epfd or fd is not a valid file descriptor.
 
-  EEXIST op was EPOLL_CTL_ADD, and the supplied file descriptor fd
+  EEXIST op was `EPOLL_CTL_ADD`, and the supplied file descriptor fd
          is already registered with this epoll instance.
 
   EINVAL epfd is not an epoll file descriptor, or fd is the same as
          epfd, or the requested operation op is not supported by
          this interface.
 
-  ELOOP  fd refers to an epoll instance and this EPOLL_CTL_ADD
+  ELOOP  fd refers to an epoll instance and this `EPOLL_CTL_ADD`
          operation would result in a circular loop of epoll
          instances monitoring one another or a nesting depth of
          epoll instances greater than 5.
 
-  ENOENT op was EPOLL_CTL_MOD or EPOLL_CTL_DEL, and fd is not
+  ENOENT op was `EPOLL_CTL_MOD` or `EPOLL_CTL_DEL`, and fd is not
          registered with this epoll instance.
 
   Note, all error conditions are not checked for a realfd.  It is expected
 that the caller will call the underlying epoll call which will itself error.
 
-Example:
+# Example
 ```
 # use fdtables::*;
 # let cage_id = threei::TESTING_CAGEID4;
