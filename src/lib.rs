@@ -500,12 +500,12 @@ mod tests {
         // let's simulate exec, which should close one of these...
         empty_fds_for_exec(threei::TESTING_CAGEID7);
 
-        // but the copy in the original cage table should remain, so this 
+        // but the copy in the original cage table should remain, so this
         // shouldn't error...
-        translate_virtual_fd(threei::TESTING_CAGEID,cloexecfd).unwrap();
+        translate_virtual_fd(threei::TESTING_CAGEID, cloexecfd).unwrap();
 
         // However, the other should be gone and should error...
-        assert!(translate_virtual_fd(threei::TESTING_CAGEID7,cloexecfd).is_err());
+        assert!(translate_virtual_fd(threei::TESTING_CAGEID7, cloexecfd).is_err());
 
         // Let's simulate exit on the initial cage, to close two of them...
         remove_cage_from_fdtable(threei::TESTING_CAGEID);
@@ -558,6 +558,145 @@ mod tests {
         let newrealfds = convert_realfds_back_to_virtual(vec![7], mappingtable);
         // virtfd 3 should be returned
         assert_eq!(newrealfds, vec!(3));
+    }
+
+    #[test]
+    // check some common epoll cases...
+    fn check_epoll_helpers() {
+        let mut _thelock: MutexGuard<bool>;
+        loop {
+            match TESTMUTEX.lock() {
+                Err(_) => {
+                    TESTMUTEX.clear_poison();
+                }
+                Ok(val) => {
+                    _thelock = val;
+                    break;
+                }
+            }
+        }
+        refresh();
+
+        let cage_id = threei::TESTING_CAGEID;
+
+        let virtfd1 = 5;
+        let virtfd2 = 6;
+        let virtfd3 = 10;
+        let realfd = 20;
+        // get_specific_virtual_fd(cage_id, VIRTFD, REALFD, CLOEXEC, OPTINFO)
+        get_specific_virtual_fd(cage_id, virtfd1, NO_REAL_FD, false, 123).unwrap();
+        get_specific_virtual_fd(cage_id, virtfd2, NO_REAL_FD, false, 456).unwrap();
+        get_specific_virtual_fd(cage_id, virtfd3, realfd, true, 0).unwrap();
+
+        // get an epollfd...
+        let epollfd = epoll_create_helper(cage_id, false).unwrap();
+
+        let myevent1 = epoll_event {
+            events: (EPOLLIN + EPOLLOUT) as u32,
+            u64: 0,
+        };
+        let myevent2 = epoll_event {
+            events: (EPOLLIN) as u32,
+            u64: 0,
+        };
+
+        // try to add the realfd, which should fail and return the realfd
+        assert_eq!(
+            try_epoll_ctl(cage_id, epollfd, EPOLL_CTL_ADD, virtfd3, myevent1.clone()).unwrap(),
+            realfd
+        );
+        // Nothing should have been added...
+        assert_eq!(get_epoll_wait_data(cage_id, epollfd).unwrap().len(), 0);
+
+        // Add in one unrealfd...
+        assert_eq!(
+            try_epoll_ctl(cage_id, epollfd, EPOLL_CTL_ADD, virtfd1, myevent1.clone()).unwrap(),
+            NO_REAL_FD
+        );
+
+        // Should have one item...
+        assert_eq!(get_epoll_wait_data(cage_id, epollfd).unwrap().len(), 1);
+
+        // Delete it...
+        assert_eq!(
+            try_epoll_ctl(cage_id, epollfd, EPOLL_CTL_DEL, virtfd1, myevent1.clone()).unwrap(),
+            NO_REAL_FD
+        );
+
+        // Back to zero...
+        assert_eq!(get_epoll_wait_data(cage_id, epollfd).unwrap().len(), 0);
+
+        // Add in two unrealfds...
+        assert_eq!(
+            try_epoll_ctl(cage_id, epollfd, EPOLL_CTL_ADD, virtfd1, myevent1.clone()).unwrap(),
+            NO_REAL_FD
+        );
+        assert_eq!(
+            try_epoll_ctl(cage_id, epollfd, EPOLL_CTL_ADD, virtfd2, myevent2.clone()).unwrap(),
+            NO_REAL_FD
+        );
+        assert_eq!(get_epoll_wait_data(cage_id, epollfd).unwrap().len(), 2);
+
+        // Check their event types are correct...
+        assert_eq!(
+            get_epoll_wait_data(cage_id, epollfd).unwrap()[&virtfd1].events,
+            myevent1.events
+        );
+        assert_eq!(
+            get_epoll_wait_data(cage_id, epollfd).unwrap()[&virtfd2].events,
+            myevent2.events
+        );
+
+        // Let's switch one of them...
+        assert_eq!(
+            try_epoll_ctl(cage_id, epollfd, EPOLL_CTL_MOD, virtfd1, myevent2.clone()).unwrap(),
+            NO_REAL_FD
+        );
+        // not anymore!
+        assert_ne!(
+            get_epoll_wait_data(cage_id, epollfd).unwrap()[&virtfd1].events,
+            myevent1.events
+        );
+        // correct!
+        assert_eq!(
+            get_epoll_wait_data(cage_id, epollfd).unwrap()[&virtfd1].events,
+            myevent2.events
+        );
+    }
+
+    #[test]
+    // Did I implement epoll of epoll fds?
+    fn check_SHOULD_FAIL_FOR_NOW_if_we_support_epoll_of_epoll() {
+        let mut _thelock: MutexGuard<bool>;
+        loop {
+            match TESTMUTEX.lock() {
+                Err(_) => {
+                    TESTMUTEX.clear_poison();
+                }
+                Ok(val) => {
+                    _thelock = val;
+                    break;
+                }
+            }
+        }
+        refresh();
+
+        let cage_id = threei::TESTING_CAGEID;
+
+        // get two epollfds...
+        let epollfd1 = epoll_create_helper(cage_id, false).unwrap();
+        let epollfd2 = epoll_create_helper(cage_id, false).unwrap();
+
+        let myevent1 = epoll_event {
+            events: (EPOLLIN + EPOLLOUT) as u32,
+            u64: 0,
+        };
+
+        // try to add an epollfd to an epollfd
+        assert_eq!(
+            try_epoll_ctl(cage_id, epollfd1, EPOLL_CTL_ADD, epollfd2, myevent1.clone()).unwrap(),
+            NO_REAL_FD
+        );
     }
 
     #[test]
