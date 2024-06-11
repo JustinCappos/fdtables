@@ -633,13 +633,14 @@ mod tests {
         let virtfd2 = 6;
         let virtfd3 = 10;
         let realfd = 20;
+        let epollrealfd = 100;
         // get_specific_virtual_fd(cage_id, VIRTFD, REALFD, CLOEXEC, OPTINFO)
         get_specific_virtual_fd(cage_id, virtfd1, NO_REAL_FD, false, 123).unwrap();
         get_specific_virtual_fd(cage_id, virtfd2, NO_REAL_FD, false, 456).unwrap();
         get_specific_virtual_fd(cage_id, virtfd3, realfd, true, 0).unwrap();
 
         // get an epollfd...
-        let epollfd = epoll_create_helper(cage_id, false).unwrap();
+        let epollfd = epoll_create_helper(cage_id, epollrealfd, false).unwrap();
 
         let myevent1 = epoll_event {
             events: (EPOLLIN + EPOLLOUT) as u32,
@@ -653,70 +654,73 @@ mod tests {
         // try to add the realfd, which should fail and return the realfd
         assert_eq!(
             try_epoll_ctl(cage_id, epollfd, EPOLL_CTL_ADD, virtfd3, myevent1.clone()).unwrap(),
-            realfd
+            (epollrealfd, realfd)
         );
         // Nothing should have been added...
-        assert_eq!(get_epoll_wait_data(cage_id, epollfd).unwrap().len(), 0);
+        assert_eq!(get_epoll_wait_data(cage_id, epollfd).unwrap().1.len(), 0);
 
         // Add in one unrealfd...
         assert_eq!(
             try_epoll_ctl(cage_id, epollfd, EPOLL_CTL_ADD, virtfd1, myevent1.clone()).unwrap(),
-            NO_REAL_FD
+            (epollrealfd, NO_REAL_FD)
         );
 
         // Should have one item...
-        assert_eq!(get_epoll_wait_data(cage_id, epollfd).unwrap().len(), 1);
+        assert_eq!(get_epoll_wait_data(cage_id, epollfd).unwrap().1.len(), 1);
 
         // Delete it...
         assert_eq!(
             try_epoll_ctl(cage_id, epollfd, EPOLL_CTL_DEL, virtfd1, myevent1.clone()).unwrap(),
-            NO_REAL_FD
+            (epollrealfd, NO_REAL_FD)
         );
 
         // Back to zero...
-        assert_eq!(get_epoll_wait_data(cage_id, epollfd).unwrap().len(), 0);
+        assert_eq!(get_epoll_wait_data(cage_id, epollfd).unwrap().1.len(), 0);
 
         // Add in two unrealfds...
         assert_eq!(
             try_epoll_ctl(cage_id, epollfd, EPOLL_CTL_ADD, virtfd1, myevent1.clone()).unwrap(),
-            NO_REAL_FD
+            (epollrealfd, NO_REAL_FD)
         );
         assert_eq!(
             try_epoll_ctl(cage_id, epollfd, EPOLL_CTL_ADD, virtfd2, myevent2.clone()).unwrap(),
-            NO_REAL_FD
+            (epollrealfd, NO_REAL_FD)
         );
-        assert_eq!(get_epoll_wait_data(cage_id, epollfd).unwrap().len(), 2);
+        assert_eq!(get_epoll_wait_data(cage_id, epollfd).unwrap().1.len(), 2);
 
         // Check their event types are correct...
         assert_eq!(
-            get_epoll_wait_data(cage_id, epollfd).unwrap()[&virtfd1].events,
+            get_epoll_wait_data(cage_id, epollfd).unwrap().1[&virtfd1].events,
             myevent1.events
         );
         assert_eq!(
-            get_epoll_wait_data(cage_id, epollfd).unwrap()[&virtfd2].events,
+            get_epoll_wait_data(cage_id, epollfd).unwrap().1[&virtfd2].events,
             myevent2.events
         );
 
         // Let's switch one of them...
         assert_eq!(
             try_epoll_ctl(cage_id, epollfd, EPOLL_CTL_MOD, virtfd1, myevent2.clone()).unwrap(),
-            NO_REAL_FD
+            (epollrealfd, NO_REAL_FD)
         );
         // not anymore!
         assert_ne!(
-            get_epoll_wait_data(cage_id, epollfd).unwrap()[&virtfd1].events,
+            get_epoll_wait_data(cage_id, epollfd).unwrap().1[&virtfd1].events,
             myevent1.events
         );
         // correct!
         assert_eq!(
-            get_epoll_wait_data(cage_id, epollfd).unwrap()[&virtfd1].events,
+            get_epoll_wait_data(cage_id, epollfd).unwrap().1[&virtfd1].events,
             myevent2.events
         );
     }
 
+
     #[test]
     #[ignore]
-    // Did I implement epoll of epoll fds?
+    // Add these if I do the complete epoll later.  These tests are amazing!
+    // https://github.com/heiher/epoll-wakeup
+    // Right now, just check, did I implement epoll of epoll fds?
     #[allow(non_snake_case)]
     fn check_SHOULD_FAIL_FOR_NOW_if_we_support_epoll_of_epoll() {
         let mut _thelock: MutexGuard<bool>;
@@ -736,8 +740,8 @@ mod tests {
         let cage_id = threei::TESTING_CAGEID;
 
         // get two epollfds...
-        let epollfd1 = epoll_create_helper(cage_id, false).unwrap();
-        let epollfd2 = epoll_create_helper(cage_id, false).unwrap();
+        let epollfd1 = epoll_create_helper(cage_id, EPOLLFD, false).unwrap();
+        let epollfd2 = epoll_create_helper(cage_id, EPOLLFD, false).unwrap();
 
         let myevent1 = epoll_event {
             events: (EPOLLIN + EPOLLOUT) as u32,
@@ -747,7 +751,7 @@ mod tests {
         // try to add an epollfd to an epollfd
         assert_eq!(
             try_epoll_ctl(cage_id, epollfd1, EPOLL_CTL_ADD, epollfd2, myevent1.clone()).unwrap(),
-            NO_REAL_FD
+            (EPOLLFD, NO_REAL_FD)
         );
     }
 

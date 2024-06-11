@@ -1,11 +1,14 @@
 Modifies an epoll fd to add, remove, or modify a fd.
 
 This is a helper function for `epoll_ctl`.  It only really operates on the
-fds which are `NO_REAL_FD` and (?possibly?) EPOLLFD types.  It returns 
-`NO_REAL_FD` if it was able to do `epoll_ctl` on a locally managed (e.g., a 
-`NO_REAL_FD`) fd.  If called with a virtual fd which maps to a real fd, this 
-returns the realfd.  See [`epoll_create_helper`] and [`get_epoll_wait_data`] 
-for more details.
+fds which are `NO_REAL_FD` and (?possibly?) EPOLLFD types.  It returns a 
+tuple of two valus, with the first value always being the realfd of the 
+underlying epollfd.  
+
+The second and final value is `NO_REAL_FD` if it was able to do `epoll_ctl` 
+on a locally managed (e.g., a `NO_REAL_FD`) fd.  If called with a virtual fd 
+which maps to a real fd, this is instead returns the realfd.  See 
+[`epoll_create_helper`] and [`get_epoll_wait_data`] for more details.
 
 # Panics
   cageid does not exist
@@ -36,11 +39,12 @@ that the caller will call the underlying epoll call which will itself error.
 # use fdtables::*;
 # let cage_id = threei::TESTING_CAGEID4;
 # init_empty_cage(cage_id);
+# let realepollfd:u64 = EPOLLFD;
 // make an unreal fd...
 let unrealfd = get_unused_virtual_fd(cage_id,NO_REAL_FD, false, 123).unwrap();
 
 // let's create an epollfd which will watch it...
-let myepollfd = epoll_create_helper(cage_id,false).unwrap();
+let myepollfd = epoll_create_helper(cage_id,realepollfd,false).unwrap();
 
 let myevent = epoll_event {
     events: (EPOLLIN + EPOLLOUT) as u32,
@@ -48,8 +52,8 @@ let myevent = epoll_event {
 };
 
 // Add the unreal fd...
-assert_eq!(try_epoll_ctl(cage_id,myepollfd,EPOLL_CTL_ADD,unrealfd,myevent.clone()).unwrap(),NO_REAL_FD);
+assert_eq!(try_epoll_ctl(cage_id,myepollfd,EPOLL_CTL_ADD,unrealfd,myevent.clone()).unwrap(),(realepollfd,NO_REAL_FD));
 
 // This should return the unrealfd's info!
-assert_eq!(get_epoll_wait_data(cage_id,myepollfd).unwrap()[&unrealfd].events,myevent.events);
+assert_eq!(get_epoll_wait_data(cage_id,myepollfd).unwrap().1[&unrealfd].events,myevent.events);
 ```
