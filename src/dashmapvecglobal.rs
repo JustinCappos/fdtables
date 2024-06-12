@@ -119,14 +119,14 @@ pub fn get_unused_virtual_fd(
         optionalinfo,
     };
 
-    let mut myfdvec = FDTABLE.get_mut(&cageid).unwrap();
+    let mut myfdrow = FDTABLE.get_mut(&cageid).unwrap();
 
     // Check the fds in order.
     for fdcandidate in 0..FD_PER_PROCESS_MAX {
         // FIXME: This is likely very slow.  Should do something smarter...
-        if myfdvec[fdcandidate as usize].is_none() {
+        if myfdrow[fdcandidate as usize].is_none() {
             // I just checked.  Should not be there...
-            myfdvec[fdcandidate as usize] = Some(myentry);
+            myfdrow[fdcandidate as usize] = Some(myentry);
             _increment_realfd(realfd);
             return Ok(fdcandidate);
         }
@@ -265,14 +265,14 @@ pub fn remove_cage_from_fdtable(cageid: u64) {
     assert!(FDTABLE.contains_key(&cageid),"Unknown cageid in fdtable access");
 
 
-    let myfdvec = FDTABLE.get(&cageid).unwrap();
+    let myfdrow = FDTABLE.get(&cageid).unwrap();
     for item in 0..FD_PER_PROCESS_MAX as usize {
-        if myfdvec[item].is_some() {
-            let therealfd = myfdvec[item].unwrap().realfd;
+        if myfdrow[item].is_some() {
+            let therealfd = myfdrow[item].unwrap().realfd;
             if therealfd == NO_REAL_FD {
                 // Let their code know this has been closed...
                 let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
-                (closehandlers.unreal)(myfdvec[item].unwrap().optionalinfo);
+                (closehandlers.unreal)(myfdrow[item].unwrap().optionalinfo);
             }
             else{
                 _decrement_realfd(therealfd);
@@ -281,7 +281,7 @@ pub fn remove_cage_from_fdtable(cageid: u64) {
     }
     // I need to do this or else I'll try to double claim the lock and
     // deadlock...
-    drop(myfdvec);
+    drop(myfdrow);
 
     FDTABLE.remove(&cageid);
 
@@ -294,19 +294,19 @@ pub fn empty_fds_for_exec(cageid: u64) {
 
     assert!(FDTABLE.contains_key(&cageid),"Unknown cageid in fdtable access");
 
-    let mut myfdvec = FDTABLE.get_mut(&cageid).unwrap();
+    let mut myfdrow = FDTABLE.get_mut(&cageid).unwrap();
     for item in 0..FD_PER_PROCESS_MAX as usize {
-        if myfdvec[item].is_some() && myfdvec[item].unwrap().should_cloexec {
-            let therealfd = myfdvec[item].unwrap().realfd;
+        if myfdrow[item].is_some() && myfdrow[item].unwrap().should_cloexec {
+            let therealfd = myfdrow[item].unwrap().realfd;
             if therealfd == NO_REAL_FD {
                 // Let their code know this has been closed...
                 let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
-                (closehandlers.unreal)(myfdvec[item].unwrap().optionalinfo);
+                (closehandlers.unreal)(myfdrow[item].unwrap().optionalinfo);
             }
             else{
                 _decrement_realfd(therealfd);
             }
-            myfdvec[item] = None;
+            myfdrow[item] = None;
         }
     }
 
@@ -323,10 +323,10 @@ pub fn return_fdtable_copy(cageid: u64) -> HashMap<u64, FDTableEntry> {
 
     let mut myhashmap = HashMap::new();
 
-    let myfdvec = FDTABLE.get(&cageid).unwrap();
+    let myfdrow = FDTABLE.get(&cageid).unwrap();
     for item in 0..FD_PER_PROCESS_MAX as usize {
-        if myfdvec[item].is_some() {
-            myhashmap.insert(item as u64,myfdvec[item].unwrap());
+        if myfdrow[item].is_some() {
+            myhashmap.insert(item as u64,myfdrow[item].unwrap());
         }
     }
     myhashmap
@@ -359,23 +359,23 @@ pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(),threei::RetVal> {
 
     assert!(FDTABLE.contains_key(&cageid),"Unknown cageid in fdtable access");
 
-    let mut myfdvec = FDTABLE.get_mut(&cageid).unwrap();
+    let mut myfdrow = FDTABLE.get_mut(&cageid).unwrap();
 
 
-    if myfdvec[virtfd as usize].is_some() {
-        let therealfd = myfdvec[virtfd as usize].unwrap().realfd;
+    if myfdrow[virtfd as usize].is_some() {
+        let therealfd = myfdrow[virtfd as usize].unwrap().realfd;
 
         if therealfd == NO_REAL_FD {
             // Let their code know this has been closed...
             let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
-            (closehandlers.unreal)(myfdvec[virtfd as usize].unwrap().optionalinfo);
+            (closehandlers.unreal)(myfdrow[virtfd as usize].unwrap().optionalinfo);
             // Zero out this entry...
-            myfdvec[virtfd as usize] = None;
+            myfdrow[virtfd as usize] = None;
             return Ok(());
         }
         _decrement_realfd(therealfd);
         // Zero out this entry...
-        myfdvec[virtfd as usize] = None;
+        myfdrow[virtfd as usize] = None;
         return Ok(());
     }
     Err(threei::Errno::EBADFD as u64)
@@ -474,7 +474,7 @@ pub fn _fd_isset(fd:u64, thisfdset:&fd_set) -> bool {
 
 // Computes the bitmodifications and returns a (maxnfds, unrealset) tuple...
 #[doc(hidden)]
-fn _do_bitmods(myfdvec:&Vec<Option<FDTableEntry>>, nfds:u64, infdset: fd_set, thisfdset: &mut fd_set, mappingtable: &mut HashMap<u64,u64>) -> Result<(u64,HashSet<(u64,u64)>),threei::RetVal> {
+fn _do_bitmods(myfdrow:&Vec<Option<FDTableEntry>>, nfds:u64, infdset: fd_set, thisfdset: &mut fd_set, mappingtable: &mut HashMap<u64,u64>) -> Result<(u64,HashSet<(u64,u64)>),threei::RetVal> {
     let mut unrealhashset:HashSet<(u64,u64)> = HashSet::new();
     // Iterate through the infdset and set those values as is appropriate
     let mut highestpos = 0;
@@ -484,7 +484,7 @@ fn _do_bitmods(myfdvec:&Vec<Option<FDTableEntry>>, nfds:u64, infdset: fd_set, th
     for bit in 0..nfds as usize {
         let pos = bit as u64;
         if _fd_isset(pos,&infdset) {
-            if let Some(entry) = myfdvec[bit] {
+            if let Some(entry) = myfdrow[bit] {
                 if entry.realfd == NO_REAL_FD {
                     unrealhashset.insert((pos,entry.optionalinfo));
                 }
@@ -527,7 +527,7 @@ pub fn get_real_bitmasks_for_select(cageid:u64, nfds:u64, readbits:Option<fd_set
     // dashmaps are lockless, but usually I would grab a lock on the fdtable
     // here...  
     let binding = FDTABLE.get(&cageid).unwrap();
-    let thefdvec = binding.value().clone();
+    let thefdrow = binding.value().clone();
 
         // putting results in a vec was the cleanest way I found to do this..
     let mut resultvec = Vec::new();
@@ -537,7 +537,7 @@ pub fn get_real_bitmasks_for_select(cageid:u64, nfds:u64, readbits:Option<fd_set
         match inset {
             Some(virtualbits) => {
                 let mut retset = _init_fd_set();
-                let (thisnfds,myunrealhashset) = _do_bitmods(&thefdvec,nfds,virtualbits, &mut retset,&mut mappingtable)?;
+                let (thisnfds,myunrealhashset) = _do_bitmods(&thefdrow,nfds,virtualbits, &mut retset,&mut mappingtable)?;
                 resultvec.push(retset);
                 newnfds = cmp::max(thisnfds, newnfds);
                 unrealarray[unrealoffset] = myunrealhashset;
@@ -615,15 +615,15 @@ pub fn convert_virtualfds_to_real(cageid:u64, virtualfds:Vec<u64>) -> (Vec<u64>,
     let mut realvec = Vec::new();
     let mut invalidvec = Vec::new();
 // I can't do this because it doesn't implement the copy trait...
-//    let thefdvec = *FDTABLE.get(&cageid).unwrap();
+//    let thefdrow = *FDTABLE.get(&cageid).unwrap();
     let binding = FDTABLE.get(&cageid).unwrap();
-    let thefdvec = binding.value().clone();
+    let thefdrow = binding.value().clone();
     let mut mappingtable:HashMap<u64,u64> = HashMap::new();
 
     // BUG?: I'm ignoring the fact that virtualfds can show up multiple times.
     // I'm not sure this actually matters, but I didn't think hard about it.
     for virtfd in virtualfds {
-        if let Some(entry) = thefdvec[virtfd as usize] {
+        if let Some(entry) = thefdrow[virtfd as usize] {
             // always append the value here.  NO_REAL_FD will be added
             // in the appropriate places to tell them to handle those calls
             // themself.  
