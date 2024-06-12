@@ -772,15 +772,6 @@ pub fn epoll_create_helper(cageid:u64, realfd:u64, should_cloexec:bool) -> Resul
 }
 
 
-/*
-// Helper to get the realfd...
-fn _get_epoll_realfd(cageid:u64, epfd:u64) -> u64 {
-    let epollentrynum:u64 = match FDTABLE.get(&cageid).unwrap()[epfd as usize] {
-    let ept = EPOLLTABLE.lock().unwrap();
-}
-*/
-
-
 #[doc = include_str!("../docs/try_epoll_ctl.md")]
 pub fn try_epoll_ctl(cageid:u64, epfd:u64, op:i32, virtfd:u64, event:epoll_event) -> Result<(u64,u64),threei::RetVal> {
 
