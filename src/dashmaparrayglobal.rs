@@ -239,7 +239,7 @@ pub fn copy_fdtable_for_cage(srccageid: u64, newcageid: u64) -> Result<(), three
     assert!(!FDTABLE.contains_key(&newcageid),"Known cageid in fdtable access");
 
     // Insert a copy and ensure it didn't exist...
-    // BUG: Is this a copy!?!  Am I passing a ref to the same thing!?!?!?
+    // I've checked this should be a copy, not a ref to the same thing.  
 //    let hmcopy = FDTABLE.get(&srccageid).unwrap().clone();
     let hmcopy = *FDTABLE.get(&srccageid).unwrap();
 

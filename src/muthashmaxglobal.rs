@@ -889,6 +889,7 @@ pub fn try_epoll_ctl(cageid:u64, epfd:u64, op:i32, virtfd:u64, event:epoll_event
                 // Return realfds because the caller should handle them instead
                 // I only track unrealfds.
                 if tableentry.realfd == EPOLLFD {
+                    // BUG: How should I be doing this, really!?!
                     println!("epollfds acting on epollfds is not supported!");
                 }
                 return Ok((realepollfd,tableentry.realfd));
