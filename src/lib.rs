@@ -715,7 +715,6 @@ mod tests {
         );
     }
 
-
     #[test]
     #[ignore]
     // Add these if I do the complete epoll later.  These tests are amazing!
@@ -817,9 +816,12 @@ mod tests {
         .is_ok());
 
         // let's peek closer at an actual call...
-        let (_, _realreadbits, _realwritebits, _realexceptbits, unrealitems, mappingtable) =
+        let (_, realreadbits, realwritebits, realexceptbits, unrealitems, mappingtable) =
             get_real_bitmasks_for_select(cage_id, 6, Some(actual_fds_to_check), None, None)
                 .unwrap();
+        assert!(realreadbits.is_some());
+        assert!(realwritebits.is_none());
+        assert!(realexceptbits.is_none());
         assert_eq!(unrealitems[0].len(), 1);
         assert_eq!(mappingtable.len(), 1);
     }

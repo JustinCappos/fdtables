@@ -1,8 +1,9 @@
 Translate select's bitmasks from virtual to realfds.
 
 This is a helper function for select, which is called before you make the
-call to select.  It takes a set of virtual bitmasks and translates them to 
-real bitmasks.  For each non-real fd mentioned, it returns the virtual fd / 
+call to select.  It takes three virtual bitmasks Options and translates them
+to real bitmask Options.  A None Option is just returned as None and is not
+processed.  For each non-real fd mentioned, it returns the virtual fd / 
 optionalinfo tuple so the caller can process them.  After receiving these real 
 bitmasks, the caller should call select underneath.  The mapping table return 
 value is needed by [`get_virtual_bitmasks_from_select_result`] to revert the 
@@ -33,7 +34,7 @@ _fd_set(5,&mut fds_to_check);
 // map these into the right sets...
 let (newnfds, realreadbits, realwritebits, realexceptbits, unrealset, mappingtable) = get_real_bitmasks_for_select(cage_id, 6, Some(fds_to_check), None, None).unwrap();
 // Should set the read to have bit 7 set...
-assert!(_fd_isset(7,& realreadbits));
+assert!(_fd_isset(7,& realreadbits.unwrap()));
 assert_eq!(newnfds, 8);
 // and return the set: (5,123) which is the virtualfd, optionalinfo tuple.
 assert_eq!(*unrealset[0].iter().next().unwrap(), (5 as u64,123 as u64));

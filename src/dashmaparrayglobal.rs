@@ -454,15 +454,6 @@ pub fn _init_fd_set() -> fd_set {
     raw_fd_set
 }
 
-// Helper to get a null pointer.
-#[doc(hidden)]
-#[must_use] // must use the return value if you call it.
-pub fn _get_null_fd_set() -> fd_set {
-    //unsafe{ptr::null_mut()}
-    // BUG!!!  Need to fix this later.
-    _init_fd_set()
-}
-
 #[doc(hidden)]
 pub fn _fd_set(fd:u64, thisfdset:&mut fd_set) {
     unsafe{libc::FD_SET(fd as i32,thisfdset)}
@@ -514,7 +505,7 @@ fn _do_bitmods(myfdrow:&[Option<FDTableEntry>;FD_PER_PROCESS_MAX as usize], nfds
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
 #[doc = include_str!("../docs/get_real_bitmasks_for_select.md")]
-pub fn get_real_bitmasks_for_select(cageid:u64, nfds:u64, readbits:Option<fd_set>, writebits:Option<fd_set>, exceptbits:Option<fd_set>) -> Result<(u64, fd_set, fd_set, fd_set, [HashSet<(u64,u64)>;3], HashMap<u64,u64>),threei::RetVal> {
+pub fn get_real_bitmasks_for_select(cageid:u64, nfds:u64, readbits:Option<fd_set>, writebits:Option<fd_set>, exceptbits:Option<fd_set>) -> Result<(u64, Option<fd_set>, Option<fd_set>, Option<fd_set>, [HashSet<(u64,u64)>;3], HashMap<u64,u64>),threei::RetVal> {
     
     if nfds >= FD_PER_PROCESS_MAX {
         return Err(threei::Errno::EINVAL as u64);
@@ -540,14 +531,13 @@ pub fn get_real_bitmasks_for_select(cageid:u64, nfds:u64, readbits:Option<fd_set
             Some(virtualbits) => {
                 let mut retset = _init_fd_set();
                 let (thisnfds,myunrealhashset) = _do_bitmods(&thefdvec,nfds,virtualbits, &mut retset,&mut mappingtable)?;
-                resultvec.push(retset);
+                resultvec.push(Some(retset));
                 newnfds = cmp::max(thisnfds, newnfds);
                 unrealarray[unrealoffset] = myunrealhashset;
             }
             None => {
                 // This item is null.  No unreal items
-                // BUG: Need to actually return null!
-                resultvec.push(_get_null_fd_set());
+                resultvec.push(None);
                 unrealarray[unrealoffset] = HashSet::new();
             }
         }
@@ -568,7 +558,7 @@ pub fn get_real_bitmasks_for_select(cageid:u64, nfds:u64, readbits:Option<fd_set
 // I given them the hashmap, so don't need flexibility in what they return...
 #[allow(clippy::implicit_hasher)]
 #[doc = include_str!("../docs/get_virtual_bitmasks_from_select_result.md")]
-pub fn get_virtual_bitmasks_from_select_result(nfds:u64, readbits:fd_set, writebits:fd_set, exceptbits:fd_set,unrealreadset:HashSet<u64>, unrealwriteset:HashSet<u64>, unrealexceptset:HashSet<u64>, mappingtable:&HashMap<u64,u64>) -> Result<(u64, fd_set, fd_set, fd_set),threei::RetVal> {
+pub fn get_virtual_bitmasks_from_select_result(nfds:u64, readbits:Option<fd_set>, writebits:Option<fd_set>, exceptbits:Option<fd_set>,unrealreadset:HashSet<u64>, unrealwriteset:HashSet<u64>, unrealexceptset:HashSet<u64>, mappingtable:&HashMap<u64,u64>) -> Result<(u64, Option<fd_set>, Option<fd_set>, Option<fd_set>),threei::RetVal> {
 
     // Note, I don't need the cage_id here because I have the mappingtable...
 
@@ -577,13 +567,21 @@ pub fn get_virtual_bitmasks_from_select_result(nfds:u64, readbits:fd_set, writeb
     let mut flagsset = 0;
     let mut retvec = Vec::new();
 
-    for (inset,unrealset) in [(readbits,unrealreadset), (writebits,unrealwriteset), (exceptbits,unrealexceptset)] {
+    for (insetoption,unrealset) in [(readbits,unrealreadset), (writebits,unrealwriteset), (exceptbits,unrealexceptset)] {
+        // If I don't have any data, just return None (NULL) and skip...
+        if insetoption.is_none()&&unrealset.is_empty() {
+            retvec.push(None);
+            continue;
+        }
+
         let mut retbits = _init_fd_set();
-        for bit in 0..nfds as usize {
-            let pos = bit as u64;
-            if _fd_isset(pos,&inset)&& !_fd_isset(*mappingtable.get(&pos).unwrap(),&retbits) {
-                flagsset+=1;
-                _fd_set(*mappingtable.get(&pos).unwrap(),&mut retbits);
+        if let Some(inset) = insetoption {
+            for bit in 0..nfds as usize {
+                let pos = bit as u64;
+                if _fd_isset(pos,&inset)&& !_fd_isset(*mappingtable.get(&pos).unwrap(),&retbits) {
+                    flagsset+=1;
+                    _fd_set(*mappingtable.get(&pos).unwrap(),&mut retbits);
+                }
             }
         }
         for virtfd in unrealset {
@@ -592,7 +590,7 @@ pub fn get_virtual_bitmasks_from_select_result(nfds:u64, readbits:fd_set, writeb
                 _fd_set(virtfd,&mut retbits);
             }
         }
-        retvec.push(retbits);
+        retvec.push(Some(retbits));
     }
 
     Ok((flagsset,retvec[0],retvec[1],retvec[2]))
@@ -798,7 +796,7 @@ pub fn try_epoll_ctl(cageid:u64, epfd:u64, op:i32, virtfd:u64, event:epoll_event
     // Okay, I know which table entry and verified the virtfd...
 
     let mut epttable = EPOLLTABLE.lock().unwrap();
-    let realepollfd = epttable.realfdtable.get(&epollentrynum).unwrap().clone();
+    let realepollfd = *epttable.realfdtable.get(&epollentrynum).unwrap();
     let eptentry = epttable.thisepolltable.get_mut(&epollentrynum).unwrap();
 
     // check if the virtfd is real and error...
