@@ -568,6 +568,61 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
+    // Check for duplicate uses of the same realfd...
+    fn test_dup_close() {
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
+        refresh();
+
+        const REALFD: u64 = 57;
+
+        // get the realfd...  I tested this in the test above, so should not
+        // panic...
+        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
+        close_virtualfd(threei::TESTING_CAGEID, my_virt_fd).unwrap();
+
+        // Panic on this one...
+        register_close_handlers(NULL_FUNC, do_panic, NULL_FUNC);
+
+        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
+        close_virtualfd(threei::TESTING_CAGEID, my_virt_fd).unwrap();
+    }
+
+    // Helper for the next test...
+    fn _test_close_handler_recursion_helper(_: u64) {
+        // reset helpers
+        register_close_handlers(NULL_FUNC, NULL_FUNC, NULL_FUNC);
+
+        const REALFD: u64 = 57;
+        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
+        close_virtualfd(threei::TESTING_CAGEID, my_virt_fd).unwrap();
+    }
+
+    #[test]
+    // check to see what happens if close handlers call other operations...
+    fn test_close_handler_recursion() {
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
+        refresh();
+
+        const REALFD: u64 = 57;
+
+        // Register my helper to be called when I call close...
+        register_close_handlers(NULL_FUNC, _test_close_handler_recursion_helper, NULL_FUNC);
+        // get the realfd...  I tested this in the test above, so should not
+        // panic...
+        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
+        close_virtualfd(threei::TESTING_CAGEID, my_virt_fd).unwrap();
+    }
+
+    #[test]
     // check some common poll cases...
     fn check_poll_helpers() {
         let mut _thelock: MutexGuard<bool>;

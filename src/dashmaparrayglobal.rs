@@ -169,19 +169,25 @@ pub fn get_specific_virtual_fd(
     // I moved this up so that if I decrement the same realfd, it calls
     // the intermediate handler instead of the last one.
     _increment_realfd(realfd);
-    if let Some(entry) = FDTABLE.get(&cageid).unwrap()[requested_virtualfd as usize] {
+    let myoptionentry = FDTABLE.get(&cageid).unwrap()[requested_virtualfd as usize];
+    // always add the new entry.  I'm duping this first, before I close
+    // the old one because I need to ensure I've cleaned up state correctly
+    // before calling the close handlers...
+    FDTABLE.get_mut(&cageid).unwrap()[requested_virtualfd as usize] = Some(myentry);
+
+    // Close the old entry, if I need to...
+    if let Some(entry) = myoptionentry {
+
         if entry.realfd == NO_REAL_FD {
             // Let their code know this has been closed...
-            let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
-            (closehandlers.unreal)(entry.optionalinfo);
+            let unrealclosehandler = CLOSEHANDLERTABLE.lock().unwrap().unreal;
+            (unrealclosehandler)(entry.optionalinfo);
         }
         else {
             _decrement_realfd(entry.realfd);
         }
     }
 
-    // always add the new entry
-    FDTABLE.get_mut(&cageid).unwrap()[requested_virtualfd as usize] = Some(myentry);
     Ok(())
 }
 
@@ -267,25 +273,24 @@ pub fn remove_cage_from_fdtable(cageid: u64) {
     assert!(FDTABLE.contains_key(&cageid),"Unknown cageid in fdtable access");
 
 
-    let myfdrow = FDTABLE.get(&cageid).unwrap();
-    for item in 0..FD_PER_PROCESS_MAX as usize {
-        if myfdrow[item].is_some() {
-            let therealfd = myfdrow[item].unwrap().realfd;
+    // remove the item first and then we clean up and call their close
+    // handlers.
+    let myfdrow = FDTABLE.remove(&cageid).unwrap().1;
+
+    for entry in myfdrow {
+//    for item in 0..FD_PER_PROCESS_MAX as usize {
+        if entry.is_some() {
+            let therealfd = entry.unwrap().realfd;
             if therealfd == NO_REAL_FD {
                 // Let their code know this has been closed...
-                let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
-                (closehandlers.unreal)(myfdrow[item].unwrap().optionalinfo);
+                let unrealclosehandler = CLOSEHANDLERTABLE.lock().unwrap().unreal;
+                (unrealclosehandler)(entry.unwrap().optionalinfo);
             }
             else{
                 _decrement_realfd(therealfd);
             }
         }
     }
-    // I need to do this or else I'll try to double claim the lock and
-    // deadlock...
-    drop(myfdrow);
-
-    FDTABLE.remove(&cageid);
 
 }
 
@@ -300,15 +305,18 @@ pub fn empty_fds_for_exec(cageid: u64) {
     for item in 0..FD_PER_PROCESS_MAX as usize {
         if myfdrow[item].is_some() && myfdrow[item].unwrap().should_cloexec {
             let therealfd = myfdrow[item].unwrap().realfd;
+            let optionalinfo = myfdrow[item].unwrap().optionalinfo;
+
+            // Always zero out the row before calling their handler
+            myfdrow[item] = None;
             if therealfd == NO_REAL_FD {
                 // Let their code know this has been closed...
-                let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
-                (closehandlers.unreal)(myfdrow[item].unwrap().optionalinfo);
+                let unrealclosehandler = CLOSEHANDLERTABLE.lock().unwrap().unreal;
+                (unrealclosehandler)(optionalinfo);
             }
             else{
                 _decrement_realfd(therealfd);
             }
-            myfdrow[item] = None;
         }
     }
 
@@ -361,7 +369,8 @@ pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(),threei::RetVal> {
 
     assert!(FDTABLE.contains_key(&cageid),"Unknown cageid in fdtable access");
 
-    let mut myfdrow = FDTABLE.get_mut(&cageid).unwrap();
+    // derefing this so I don't hold a lock and deadlock close handlers
+    let mut myfdrow = *FDTABLE.get_mut(&cageid).unwrap();
 
 
     if myfdrow[virtfd as usize].is_some() {
@@ -369,15 +378,20 @@ pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(),threei::RetVal> {
 
         if therealfd == NO_REAL_FD {
             // Let their code know this has been closed...
-            let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
-            (closehandlers.unreal)(myfdrow[virtfd as usize].unwrap().optionalinfo);
+            let unrealclosehandler = CLOSEHANDLERTABLE.lock().unwrap().unreal;
+            let optionalinfo = myfdrow[virtfd as usize].unwrap().optionalinfo;
             // Zero out this entry...
             myfdrow[virtfd as usize] = None;
+
+            // call the handler last...
+            (unrealclosehandler)(optionalinfo);
             return Ok(());
         }
-        _decrement_realfd(therealfd);
         // Zero out this entry...
         myfdrow[virtfd as usize] = None;
+
+        // always _decrement last as it may call the user handler...
+        _decrement_realfd(therealfd);
         return Ok(());
     }
     Err(threei::Errno::EBADFD as u64)
@@ -389,6 +403,8 @@ pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(),threei::RetVal> {
 #[doc = include_str!("../docs/register_close_handlers.md")]
 pub fn register_close_handlers(intermediate: fn(u64), last: fn(u64), unreal: fn(u64)) {
     // Unlock the table and set the handlers...
+    // TODO: I made a serious attempt to try to keep closehandlers that call
+    // close, etc. from deadlocking the system.  More testing, etc. is needed.
     let mut closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
     closehandlers.intermediate = intermediate;
     closehandlers.last = last;
@@ -403,13 +419,24 @@ fn _decrement_realfd(realfd:u64) -> u64 {
     assert!(realfd != NO_REAL_FD, "Called _decrement_realfd with NO_REAL_FD");
 
     let newcount:u64 = REALFDCOUNT.get(&realfd).unwrap().value() - 1;
+    // Doing this to release the lock so I can call it recursively...
     let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
+    let intermediateclosehandler = closehandlers.intermediate;
+    let lastclosehandler = closehandlers.last;
+    // release the lock...
+    drop(closehandlers);
+
     if newcount > 0 {
-        (closehandlers.intermediate)(realfd);
+        // Update before calling their close handler in case they do operations
+        // inside the close handler which create / close fds...
         REALFDCOUNT.insert(realfd,newcount);
+        (intermediateclosehandler)(realfd);
     }
     else{
-        (closehandlers.last)(realfd);
+        // Remove before calling their close handler in case they do operations
+        // inside the close handler which create / close fds...
+        REALFDCOUNT.remove(&realfd);
+        (lastclosehandler)(realfd);
     }
     newcount
 }
@@ -808,7 +835,6 @@ pub fn try_epoll_ctl(cageid:u64, epfd:u64, op:i32, virtfd:u64, event:epoll_event
             // I only track unrealfds.
             if tableentry.realfd == EPOLLFD {
                 // BUG: How should I be doing this, really!?!
-                println!("epollfds acting on epollfds is not supported!");
             }
             return Ok((realepollfd,tableentry.realfd)); 
         }
