@@ -278,7 +278,6 @@ pub fn remove_cage_from_fdtable(cageid: u64) {
     let myfdrow = FDTABLE.remove(&cageid).unwrap().1;
 
     for entry in myfdrow {
-//    for item in 0..FD_PER_PROCESS_MAX as usize {
         if entry.is_some() {
             let therealfd = entry.unwrap().realfd;
             if therealfd == NO_REAL_FD {
@@ -835,6 +834,7 @@ pub fn try_epoll_ctl(cageid:u64, epfd:u64, op:i32, virtfd:u64, event:epoll_event
             // I only track unrealfds.
             if tableentry.realfd == EPOLLFD {
                 // BUG: How should I be doing this, really!?!
+                println!("epollfds acting on epollfds is not supported!");
             }
             return Ok((realepollfd,tableentry.realfd)); 
         }
