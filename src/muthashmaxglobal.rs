@@ -231,19 +231,23 @@ pub fn get_specific_virtual_fd(
     // I moved this up so that if I decrement the same realfd, it calls
     // the intermediate handler instead of the final one.
     _increment_realfd(realfd);
-    if let Some(entry) = fdtable.get(&cageid).unwrap().thisfdtable.get(&requested_virtualfd)  {
+    
+    // always add the new entry.  insert returns the old entry.
+    let myoptionentry = fdtable.get_mut(&cageid).unwrap().thisfdtable.insert(requested_virtualfd,myentry);
+    drop(fdtable);
+
+    // Close the old entry, if I need to...
+    if let Some(entry) = myoptionentry {
         if entry.realfd != NO_REAL_FD {
-                        _decrement_realfd(entry.realfd);
+            _decrement_realfd(entry.realfd);
         }
         else {
             // Let their code know this has been closed...
-            let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
-            (closehandlers.unreal_handler)(entry.optionalinfo);
+            let unrealclosehandler = (*CLOSEHANDLERTABLE.lock().unwrap()).unreal_handler;
+            (unrealclosehandler)(entry.optionalinfo);
         }
     }
 
-    // always add the new entry
-    fdtable.get_mut(&cageid).unwrap().thisfdtable.insert(requested_virtualfd,myentry);
     Ok(())
 }
 
@@ -342,20 +346,21 @@ pub fn remove_cage_from_fdtable(cageid: u64) {
         panic!("Unknown cageid in fdtable access");
     }
 
+    let cagetable = fdtable.remove(&cageid).unwrap();
+    drop(fdtable);
+
     // decrement the reference to items in the fdtable appropriately...
-    for v in fdtable.get(&cageid).unwrap().thisfdtable.values() {
+    for v in cagetable.thisfdtable.values() {
         if v.realfd != NO_REAL_FD {
             _decrement_realfd(v.realfd);
         }
         else {
             // Let their code know this has been closed...
-            let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
-            (closehandlers.unreal_handler)(v.optionalinfo);
+            let unrealclosehandler = CLOSEHANDLERTABLE.lock().unwrap().unreal_handler;
+            (unrealclosehandler)(v.optionalinfo);
         }
     }
 
-
-    fdtable.remove(&cageid).unwrap();
 }
 
 // This removes all fds with the should_cloexec flag set.  They are returned
@@ -382,17 +387,14 @@ pub fn empty_fds_for_exec(cageid: u64) {
     let thiscagefdtable = &mut fdtable.get_mut(&cageid).unwrap().thisfdtable;
 
     let mut without_cloexec_hm:HashMap<u64,FDTableEntry> = HashMap::new();
+    // I bother to put this in a hashmap so I can call the closehandlers
+    // all after I have re-inserted everything.  This ensures the state
+    // is consistent.  I only need the values, not the keys...
+    let mut with_cloexec_vec:Vec<FDTableEntry> = Vec::new();
+
     for (k,v) in thiscagefdtable.drain() {
         if v.should_cloexec {
-            if v.realfd == NO_REAL_FD {
-                // Let their code know this has been closed...
-                let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
-                (closehandlers.unreal_handler)(v.optionalinfo);
-            }
-            else {
-                // Let the helper tell the user and decrement the count
-                _decrement_realfd(v.realfd);
-            }
+            with_cloexec_vec.push(v);
         }
         else{
             without_cloexec_hm.insert(k,v);
@@ -406,8 +408,26 @@ pub fn empty_fds_for_exec(cageid: u64) {
         thisfdtable:without_cloexec_hm,
     };
 
-    // Put the ones without_cloexec back in the hashmap...
+    // Put the ones without_cloexec back in the hashmap since they shouldn't
+    // be closed...
     fdtable.insert(cageid,newfdtable);
+    // Release the lock...
+    drop(fdtable);
+
+    // Now call the close handlers on the others...
+    for v in with_cloexec_vec {
+        if v.realfd == NO_REAL_FD {
+            // Let their code know this has been closed...  I get the handler
+            // repeatedly in case they change it during execution of another
+            // handler...
+            let closehandlerunreal = CLOSEHANDLERTABLE.lock().unwrap().unreal_handler;
+            (closehandlerunreal)(v.optionalinfo);
+        }
+        else {
+            // Let the helper tell the user and decrement the count
+            _decrement_realfd(v.realfd);
+        }
+    }
 
 }
 
@@ -438,14 +458,16 @@ pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(),threei::RetVal> {
         panic!("Unknown cageid in fdtable access");
     }
 
-    let thiscagesfdtable = &mut fdtable.get_mut(&cageid).unwrap().thisfdtable;
+    let thisoption = fdtable.get_mut(&cageid).unwrap().thisfdtable.remove(&virtfd);
+    drop(fdtable);
 
-    match thiscagesfdtable.remove(&virtfd) {
+    match thisoption {
         Some(entry) =>
             if entry.realfd == NO_REAL_FD {
                 // Let their code know this has been closed...
-                let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
-                (closehandlers.unreal_handler)(entry.optionalinfo);
+                let closehandlerunreal = CLOSEHANDLERTABLE.lock().unwrap().unreal_handler;
+                let optionalinfo = entry.optionalinfo;
+                (closehandlerunreal)(optionalinfo);
                 Ok(())
             }
             else {
@@ -462,6 +484,8 @@ pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(),threei::RetVal> {
 #[doc = include_str!("../docs/register_close_handlers.md")]
 pub fn register_close_handlers(intermediate_handler: fn(u64), final_handler: fn(u64), unreal_handler: fn(u64)) {
     // Unlock the table and set the handlers...
+    // TODO: I made a serious attempt to try to keep closehandlers that call
+    // close, etc. from deadlocking the system.  More testing, etc. is needed.
     let mut closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
     closehandlers.intermediate_handler = intermediate_handler;
     closehandlers.final_handler = final_handler;
@@ -472,21 +496,34 @@ pub fn register_close_handlers(intermediate_handler: fn(u64), final_handler: fn(
 #[doc(hidden)]
 fn _decrement_realfd(realfd:u64) -> u64 {
     // Do nothing if it's not a realfd...
-    if realfd == NO_REAL_FD {
-        panic!("Called _decrement_realfd with NO_REAL_FD");
-    }
+    assert!(realfd != NO_REAL_FD, "Called _decrement_realfd with NO_REAL_FD");
 
     // Get this table's lock...
     let mut realfdcount = GLOBALREALFDCOUNT.lock().unwrap();
 
     let newcount:u64 = realfdcount.get(&realfd).unwrap() - 1;
     let closehandlers = CLOSEHANDLERTABLE.lock().unwrap();
+    let intermediateclosehandler = closehandlers.intermediate_handler;
+    let finalclosehandler = closehandlers.final_handler;
+    // release the lock...
+    drop(closehandlers);
+
     if newcount > 0 {
-        (closehandlers.intermediate_handler)(realfd);
         realfdcount.insert(realfd,newcount);
+        // Need to drop locks to call the handlers or else will deadlock...
+        drop(realfdcount);
+
+        (intermediateclosehandler)(realfd);
     }
     else {
-        (closehandlers.final_handler)(realfd);
+        // Remove before calling their close handler in case they do operations
+        // inside the close handler which create / close fds...
+        realfdcount.remove(&realfd);
+        // Need to drop locks to call the handlers or else will deadlock...
+        drop(realfdcount);
+
+        (finalclosehandler)(realfd);
+
     }
     newcount
 }
