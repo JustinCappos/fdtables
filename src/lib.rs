@@ -592,7 +592,7 @@ mod tests {
         close_virtualfd(threei::TESTING_CAGEID, my_virt_fd).unwrap();
     }
 
-    // Helper for the next test...
+    // Helper for the close handler recursion tests...
     fn _test_close_handler_recursion_helper(_: u64) {
         // reset helpers
         register_close_handlers(NULL_FUNC, NULL_FUNC, NULL_FUNC);
@@ -616,10 +616,120 @@ mod tests {
 
         // Register my helper to be called when I call close...
         register_close_handlers(NULL_FUNC, _test_close_handler_recursion_helper, NULL_FUNC);
-        // get the realfd...  I tested this in the test above, so should not
-        // panic...
+
         let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
+        // Call this which calls the close handler
         close_virtualfd(threei::TESTING_CAGEID, my_virt_fd).unwrap();
+    }
+
+    #[test]
+    // get_specific_virtual_fd closehandler recursion... likely deadlock on
+    // fail.
+    fn test_gsvfd_handler_recursion() {
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
+        refresh();
+
+        const REALFD: u64 = 57;
+
+        // Register my helper to be called when I call close...
+        register_close_handlers(NULL_FUNC, _test_close_handler_recursion_helper, NULL_FUNC);
+
+        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
+        // Call this which calls the close handler
+        get_specific_virtual_fd(threei::TESTING_CAGEID, my_virt_fd, 123, true, 0).unwrap();
+    }
+
+    #[test]
+    // remove_cage_from_fdtable closehandler recursion... likely deadlock on
+    // fail.
+    fn test_rcffdt_handler_recursion() {
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
+        refresh();
+
+        const REALFD: u64 = 57;
+        // Since I'm removing a cage here, yet doing operations afterwards,
+        // I need to have an empty cage first.
+        init_empty_cage(threei::TESTING_CAGEID5);
+
+        // Register my helper to be called when I call close...
+        register_close_handlers(NULL_FUNC, _test_close_handler_recursion_helper, NULL_FUNC);
+
+        let _my_virt_fd =
+            get_unused_virtual_fd(threei::TESTING_CAGEID5, REALFD, false, 10).unwrap();
+        // Call this which calls the close handler
+        remove_cage_from_fdtable(threei::TESTING_CAGEID5);
+    }
+
+    #[test]
+    // empty_fds_for_exec closehandler recursion...  likely deadlock on fail.
+    fn test_effe_handler_recursion() {
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
+        refresh();
+
+        const REALFD: u64 = NO_REAL_FD;
+
+        // Register my helper to be called when I call close...
+        register_close_handlers(NULL_FUNC, _test_close_handler_recursion_helper, NULL_FUNC);
+
+        let _my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, true, 10).unwrap();
+        empty_fds_for_exec(threei::TESTING_CAGEID);
+    }
+
+    #[test]
+    // empty_fds_for_exec closehandler recursion...  likely deadlock on fail.
+    fn test_unreal_handler_recursion() {
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
+        refresh();
+
+        // Register my helper to be called when I call close...
+        register_close_handlers(NULL_FUNC, NULL_FUNC, _test_close_handler_recursion_helper);
+
+        // close
+        let my_virt_fd =
+            get_unused_virtual_fd(threei::TESTING_CAGEID, NO_REAL_FD, true, 10).unwrap();
+        // Call this which calls the close handler
+        close_virtualfd(threei::TESTING_CAGEID, my_virt_fd).unwrap();
+
+        // restore handlers
+        register_close_handlers(NULL_FUNC, NULL_FUNC, _test_close_handler_recursion_helper);
+
+        // exec
+        let _my_virt_fd =
+            get_unused_virtual_fd(threei::TESTING_CAGEID, NO_REAL_FD, true, 10).unwrap();
+        empty_fds_for_exec(threei::TESTING_CAGEID);
+
+        // restore handlers
+        register_close_handlers(NULL_FUNC, NULL_FUNC, _test_close_handler_recursion_helper);
+
+        // remove
+        init_empty_cage(threei::TESTING_CAGEID5);
+        let _my_virt_fd =
+            get_unused_virtual_fd(threei::TESTING_CAGEID5, NO_REAL_FD, false, 10).unwrap();
+        remove_cage_from_fdtable(threei::TESTING_CAGEID5);
+
+        // restore handlers
+        register_close_handlers(NULL_FUNC, NULL_FUNC, _test_close_handler_recursion_helper);
+
+        // dup2
+        let my_virt_fd =
+            get_unused_virtual_fd(threei::TESTING_CAGEID, NO_REAL_FD, false, 10).unwrap();
+        get_specific_virtual_fd(threei::TESTING_CAGEID, my_virt_fd, NO_REAL_FD, true, 0).unwrap();
     }
 
     #[test]

@@ -301,21 +301,34 @@ pub fn empty_fds_for_exec(cageid: u64) {
     assert!(FDTABLE.contains_key(&cageid),"Unknown cageid in fdtable access");
 
     let mut myfdrow = FDTABLE.get_mut(&cageid).unwrap();
+    // I need to call all the close handlers at the end.  So I need to 
+    // get vector of them to do the operation on...
+    let mut closevec = Vec::new();
+
     for item in 0..FD_PER_PROCESS_MAX as usize {
         if myfdrow[item].is_some() && myfdrow[item].unwrap().should_cloexec {
             let therealfd = myfdrow[item].unwrap().realfd;
             let optionalinfo = myfdrow[item].unwrap().optionalinfo;
+            // handle this in a moment...
+            closevec.push((therealfd,optionalinfo));
 
             // Always zero out the row before calling their handler
             myfdrow[item] = None;
-            if therealfd == NO_REAL_FD {
-                // Let their code know this has been closed...
-                let unrealclosehandler = CLOSEHANDLERTABLE.lock().unwrap().unreal;
-                (unrealclosehandler)(optionalinfo);
-            }
-            else{
-                _decrement_realfd(therealfd);
-            }
+        }
+    }
+
+    // Need to drop the lock, before calling the handlers.
+    drop(myfdrow);
+
+    // Now, we can call the close handlers!
+    for (therealfd,optionalinfo) in closevec {
+        if therealfd == NO_REAL_FD {
+            // Let their code know this has been closed...
+            let unrealclosehandler = CLOSEHANDLERTABLE.lock().unwrap().unreal;
+            (unrealclosehandler)(optionalinfo);
+        }
+        else{
+            _decrement_realfd(therealfd);
         }
     }
 
