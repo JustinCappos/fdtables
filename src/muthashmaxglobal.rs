@@ -458,6 +458,7 @@ pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(),threei::RetVal> {
         panic!("Unknown cageid in fdtable access");
     }
 
+    // remove the closed item from the fdtable (and inspect it)
     let thisoption = fdtable.get_mut(&cageid).unwrap().thisfdtable.remove(&virtfd);
     drop(fdtable);
 
