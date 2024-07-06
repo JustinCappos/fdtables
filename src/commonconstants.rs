@@ -4,35 +4,49 @@
 /// Per-process maximum number of fds...
 pub const FD_PER_PROCESS_MAX: u64 = 1024;
 
-/// Use this to indicate there isn't a real fd backing an item
-pub const NO_REAL_FD: u64 = 0xff_abcd_ef01;
+// /// Use this to indicate there isn't a real fd backing an item
+//pub const NO_REAL_FD: u64 = 0xff_abcd_ef01;
 
-/// Use to indicate this is an EPOLLFD
-pub const EPOLLFD: u64 = 0xff_abcd_ef02;
+// /// Use to indicate this is an EPOLLFD
+// pub const EPOLLFD: u64 = 0xff_abcd_ef02;
 
 /// Use this to indicate that a FD is invalid... Usually an error will be
 /// returned instead, but this is needed for rare cases like poll.
 pub const INVALID_FD: u64 = 0xff_abcd_ef00;
 
+/// All FDKIND values defined by the user must be below this value.
+pub const FDKINDMAX: u32 = 0xff00_0000;
+
+/// Use to indicate this is an EPOLLFD (an internal kind of fd)
+pub const FDKINDEPOLL: u32 = 0xff00_0001;
+
 // These are the values we look up with at the end...
 #[doc = include_str!("../docs/fdtableentry.md")]
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Hash, Debug, PartialEq, Eq)]
 /// This is a table entry, looked up by virtual fd.
 pub struct FDTableEntry {
-    /// underlying fd (may be a virtual fd below us or a kernel fd).  In
-    /// some cases is also `NO_REAL_FD` or EPOLLFD to indicate it isn't backed
-    /// by an underlying fd.
-    pub realfd: u64,
-    /// Should I close this on exec?  [/`empty_fds_for_exec`]
+    /// This is the kind of fd which it is.  These are user defined values
+    /// so they can track what this means.  Appropriate for storing information
+    /// which is global to all virtual fds that track this.
+    /// values over FDKINDMAX are reserved.
+    pub fdkind: u32,
+    /// underlying fd (could be the real, kernel fd below us or could be 
+    /// some indicator of what table entry a virtual fd has.  It is up to 
+    /// the implementer to decide how to use this.
+    pub underfd: u64,
+    /// Should I close this on exec?  Needed so fdtabls can implement
+    /// [/`empty_fds_for_exec`]
     pub should_cloexec: bool,
-    /// Used for `NO_REAL_FD` and EPOLLFD types to store extra info.  User
-    /// defined data can be added here.
-    pub optionalinfo: u64,
+    /// Used to store fd specific extra information, such as flags or similar
+    /// which may differ for different 'dup'ed copies of a fd.   Whatever 
+    /// the user desires may be placed here.
+    pub perfdinfo: u64,
 }
 
 #[allow(non_snake_case)]
 /// A function used when registering close handlers which does nothing...
-pub const fn NULL_FUNC(_: u64) {}
+/// It is the default if no close handlers are defined
+pub const fn NULL_FUNC(_:FDTableEntry, _:u64) {}
 
 // BUG / TODO: Use this in some sane way...
 #[allow(dead_code)]

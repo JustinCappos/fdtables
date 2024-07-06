@@ -1,12 +1,11 @@
 Sets up user defined functions to be called when a `close()` happens.  
 
-This lets a user function register itself to be called with either the
-realfd (for realfds) or the optionalinfo (if not a realfd) whenever
-something is closed by exec, exit, close, etc.  The first argument is 
-called when a close is called on a realfd, but a reference to the realfd
-still remains.  The second argument is called when a close on the last
-reference to the realfd is called.  The third argument is called when 
-a close on an unreal fd is performed.
+This lets a user function register itself to be called when a virtual fd is 
+closed.  The arguments provided to the function are the entry and the count 
+of remaining references.  
+
+The first argument will be called when the count > 0, and the second argument
+will be called on the last entry (count = 0).
 
 # Panics
   Never
@@ -18,18 +17,19 @@ a close on an unreal fd is performed.
 ```should_panic
 # use fdtables::*;
 # let cage_id = threei::TESTING_CAGEID;
-# let realfd: u64 = 10;
+# let fdkind: u32 = 0;
+# let underfd: u64 = 10;
 # const MYVIRTFD:u64 = 123;
-fn oh_no(num:u64) {
+fn oh_no(_:FDTableEntry, _count:u64) {
     panic!("AAAARRRRGGGGHHHH!!!!");
 }
 
 // oh_no should be called when all references to the realfd are closed...
-register_close_handlers(NULL_FUNC,oh_no,NULL_FUNC);
+register_close_handlers(fdkind,NULL_FUNC,oh_no);
 
 // Get a fd and dup it...
-let my_virt_fd = get_unused_virtual_fd(cage_id, realfd, false, 100).unwrap();
-get_specific_virtual_fd(cage_id, MYVIRTFD, realfd, false, 100).unwrap();
+let my_virt_fd = get_unused_virtual_fd(cage_id, fdkind, underfd, false, 100).unwrap();
+get_specific_virtual_fd(cage_id, MYVIRTFD, fdkind, underfd, false, 100).unwrap();
 
 // Nothing should happen when I call this, since I'm closing only one reference
 // and I registered the NULL_FUNC for this scenario...

@@ -13,7 +13,7 @@ needed exactly
 ```
 # use fdtables::*;
 # let cage_id = threei::TESTING_CAGEID;
-let my_virt_fd = get_unused_virtual_fd(cage_id, 10, false, 10).unwrap();
+let my_virt_fd = get_unused_virtual_fd(cage_id, 0, 10, false, 10).unwrap();
 let my_cages_fdtable = return_fdtable_copy(cage_id);
 assert!(my_cages_fdtable.get(&my_virt_fd).is_some());
 // I can modify the cage table after this and the changes won't show up

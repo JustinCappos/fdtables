@@ -15,5 +15,5 @@ See [`copy_fdtable_for_cage`] to handle `fork()`.
 # let cage_id = threei::TESTING_CAGEID12;
 init_empty_cage(cage_id);
 // set up this cage's stdout for to go to the real stdout
-get_specific_virtual_fd(cage_id, 1, 1, false, 0).unwrap();
+get_specific_virtual_fd(cage_id, 0, 1, 1, false, 0).unwrap();
 ```

@@ -14,9 +14,10 @@ actually care what fd you are assigned.
 ```
 # use fdtables::*;
 # let cage_id = threei::TESTING_CAGEID;
-# let realfd: u64 = 10;
+# let underfd: u64 = 10;
+# let fdkind: u32 = 0;
 // Should not error...
-let my_virt_fd = get_unused_virtual_fd(cage_id, realfd, false, 100).unwrap();
+let my_virt_fd = get_unused_virtual_fd(cage_id, fdkind, underfd, false, 0).unwrap();
 // Check that you get the real fd back here...
-assert_eq!(realfd,translate_virtual_fd(cage_id, my_virt_fd).unwrap());
+assert_eq!(underfd,translate_virtual_fd(cage_id, my_virt_fd).unwrap().underfd);
 ```

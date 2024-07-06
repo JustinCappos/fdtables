@@ -14,14 +14,15 @@ is appropriate given the status of the underlying realfd.  See
 ```
 # use fdtables::*;
 # let cage_id = threei::TESTING_CAGEID;
-# const REALFD:u64 = 209;
+# const underfd:u64 = 209;
+# const fdkind:u32 = 0;
 # const VIRTFD:u64= 345;
-fn one(_:u64) { }
-fn two(_:u64) { }
-register_close_handlers(one, two, NULL_FUNC);
-let my_virt_fd = get_unused_virtual_fd(cage_id, REALFD, false, 10).unwrap();
+fn one(_:FDTableEntry,_:u64) { }
+fn two(_:FDTableEntry,_:u64) { }
+register_close_handlers(fdkind, one, two);
+let my_virt_fd = get_unused_virtual_fd(cage_id, fdkind, underfd, false, 10).unwrap();
 // dup2 call made for fd 15...
-get_specific_virtual_fd(cage_id, VIRTFD, REALFD, false, 10).unwrap();
+get_specific_virtual_fd(cage_id, VIRTFD, fdkind, underfd, false, 10).unwrap();
 // Now they close the original fd...  This will call function "one"
 close_virtualfd(cage_id,my_virt_fd).unwrap();
 // both fds are closed.  This will call "two"
