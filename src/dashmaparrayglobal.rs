@@ -487,7 +487,7 @@ pub fn _fd_isset(fd:u64, thisfdset:&fd_set) -> bool {
 #[allow(clippy::type_complexity)]
 #[allow(clippy::implicit_hasher)]
 #[doc = include_str!("../docs/get_bitmask_for_select.md")]
-pub fn get_bitmask_for_select(cageid:u64, nfds:u64, bits:Option<fd_set>, fdkinds:&HashSet<u32>) -> Result<(HashMap<u32,(u64, fd_set)>, HashMap<u32,HashSet<FDTableEntry>>, HashMap<FDTableEntry,u64>),threei::RetVal> {
+pub fn get_bitmask_for_select(cageid:u64, nfds:u64, bits:Option<fd_set>, fdkinds:&HashSet<u32>) -> Result<(HashMap<u32,(u64, fd_set)>, HashMap<u32,HashSet<FDTableEntry>>, HashMap<(u32,u64),u64>),threei::RetVal> {
     
     if nfds >= FD_PER_PROCESS_MAX {
         return Err(threei::Errno::EINVAL as u64);
@@ -498,7 +498,7 @@ pub fn get_bitmask_for_select(cageid:u64, nfds:u64, bits:Option<fd_set>, fdkinds
     // The three things I will return...
     let mut retbittable:HashMap<u32,(u64,fd_set)> = HashMap::new();
     let mut retunparsedtable:HashMap<u32,HashSet<FDTableEntry>> = HashMap::new();
-    let mut mappingtable:HashMap<FDTableEntry,u64> = HashMap::new();
+    let mut mappingtable:HashMap<(u32,u64),u64> = HashMap::new();
 
     // If we were asked to do this on nothing, return empty mappings...
     if bits.is_none() {
@@ -552,7 +552,7 @@ pub fn get_bitmask_for_select(cageid:u64, nfds:u64, bits:Option<fd_set>, fdkinds
 
                     // and update the mappingtable to have the bit from the
                     // original fd...
-                    mappingtable.insert(entry,pos);
+                    mappingtable.insert((entry.fdkind,entry.underfd),pos);
 
                     // insert the item
                     retbittable.insert(entry.fdkind,(newnfds,startingfdset));
@@ -571,7 +571,7 @@ pub fn get_bitmask_for_select(cageid:u64, nfds:u64, bits:Option<fd_set>, fdkinds
 #[allow(clippy::type_complexity)]
 #[allow(clippy::implicit_hasher)]
 #[doc = include_str!("../docs/prepare_bitmasks_for_select.md")]
-pub fn prepare_bitmasks_for_select(cageid:u64, nfds:u64, rbits:Option<fd_set>, wbits:Option<fd_set>, ebits:Option<fd_set>, fdkinds:&HashSet<u32>) -> Result<([HashMap<u32,(u64, fd_set)>;3], [HashMap<u32,HashSet<FDTableEntry>>;3], HashMap<FDTableEntry,u64>),threei::RetVal> {
+pub fn prepare_bitmasks_for_select(cageid:u64, nfds:u64, rbits:Option<fd_set>, wbits:Option<fd_set>, ebits:Option<fd_set>, fdkinds:&HashSet<u32>) -> Result<([HashMap<u32,(u64, fd_set)>;3], [HashMap<u32,HashSet<FDTableEntry>>;3], HashMap<(u32,u64),u64>),threei::RetVal> {
     // This is a pretty simple function.  Calls get_bitmask_for_select 
     // repeatedly and combines the results...
     // [HashSet<(u64,u64)>;3]
@@ -691,56 +691,60 @@ pub fn get_real_bitmasks_for_select(cageid:u64, nfds:u64, readbits:Option<fd_set
 }
 
 
-// helper to call after calling select beneath you.  returns the fd_sets you 
+*/
+
+
+// helper to call after calling select beneath you.  returns the fd_set you 
 // need for your return from a select call and the number of unique flags
 // set...
 
 // I hate doing these, but don't know how to make this interface better...
-#[allow(clippy::type_complexity)]
-#[allow(clippy::too_many_arguments)]
+//#[allow(clippy::type_complexity)]
+//#[allow(clippy::too_many_arguments)]
 // I given them the hashmap, so don't need flexibility in what they return...
 #[allow(clippy::implicit_hasher)]
-#[doc = include_str!("../docs/get_virtual_bitmasks_from_select_result.md")]
-pub fn get_virtual_bitmasks_from_select_result(nfds:u64, readbits:Option<fd_set>, writebits:Option<fd_set>, exceptbits:Option<fd_set>,unrealreadset:HashSet<u64>, unrealwriteset:HashSet<u64>, unrealexceptset:HashSet<u64>, mappingtable:&HashMap<u64,u64>) -> Result<(u64, Option<fd_set>, Option<fd_set>, Option<fd_set>),threei::RetVal> {
+#[must_use] // must use the return value if you call it.
+#[doc = include_str!("../docs/get_one_virtual_bitmask_from_select_result.md")]
+pub fn get_one_virtual_bitmask_from_select_result(fdkind:u32, nfds:u64, bits:Option<fd_set>, unprocessedset:HashSet<u64>, startingbits:Option<fd_set>,mappingtable:&HashMap<(u32,u64),u64>) -> (u64, Option<fd_set>) {
 
     // Note, I don't need the cage_id here because I have the mappingtable...
 
     assert!(nfds < FD_PER_PROCESS_MAX,"This shouldn't be possible because we shouldn't have returned this previously");
 
     let mut flagsset = 0;
-    let mut retvec = Vec::new();
 
-    for (insetoption,unrealset) in [(readbits,unrealreadset), (writebits,unrealwriteset), (exceptbits,unrealexceptset)] {
-        // If I don't have any data, just return None (NULL) and skip...
-        if insetoption.is_none()&&unrealset.is_empty() {
-            retvec.push(None);
-            continue;
-        }
-
-        let mut retbits = _init_fd_set();
-        if let Some(inset) = insetoption {
-            for bit in 0..nfds as usize {
-                let pos = bit as u64;
-                if _fd_isset(pos,&inset)&& !_fd_isset(*mappingtable.get(&pos).unwrap(),&retbits) {
-                    flagsset+=1;
-                    _fd_set(*mappingtable.get(&pos).unwrap(),&mut retbits);
-                }
-            }
-        }
-        for virtfd in unrealset {
-            if !_fd_isset(virtfd,&retbits) {
-                flagsset+=1;
-                _fd_set(virtfd,&mut retbits);
-            }
-        }
-        retvec.push(Some(retbits));
+    if bits.is_none() && unprocessedset.is_empty() {
+        return (flagsset,None);
     }
 
-    Ok((flagsset,retvec[0],retvec[1],retvec[2]))
+    // I probably should pass a reference to startingbits to avoid copying the 
+    // bit structure...
+    let mut retbits = match startingbits {
+        Some(val) => val,
+        None => _init_fd_set(),
+    };
+
+    if let Some(inset) = bits {
+        for bit in 0..nfds as usize {
+            let pos = bit as u64;
+            if _fd_isset(pos,&inset)&& !_fd_isset(*mappingtable.get(&(fdkind,pos)).unwrap(),&retbits) {
+                flagsset+=1;
+                _fd_set(*mappingtable.get(&(fdkind,pos)).unwrap(),&mut retbits);
+            }
+        }
+    }
+    for virtfd in unprocessedset {
+        if !_fd_isset(virtfd,&retbits) {
+            flagsset+=1;
+            _fd_set(virtfd,&mut retbits);
+        }
+    }
+
+    (flagsset,Some(retbits))
 
 }
 
-
+/*
 
 /********************** POLL SPECIFIC FUNCTIONS **********************/
 
