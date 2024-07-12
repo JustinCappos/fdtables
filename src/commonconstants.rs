@@ -10,15 +10,16 @@ pub const FD_PER_PROCESS_MAX: u64 = 1024;
 // /// Use to indicate this is an EPOLLFD
 // pub const EPOLLFD: u64 = 0xff_abcd_ef02;
 
-/// Use this to indicate that a FD is invalid... Usually an error will be
-/// returned instead, but this is needed for rare cases like poll.
-pub const INVALID_FD: u64 = 0xff_abcd_ef00;
 
 /// All FDKIND values defined by the user must be below this value.
-pub const FDKINDMAX: u32 = 0xff00_0000;
+pub const FDT_KINDMAX: u32 = 0xff00_0000;
+
+/// Use this to indicate that a FD is invalid... Usually an error will be
+/// returned instead, but this is needed for rare cases like poll.
+pub const FDT_INVALID_FD: u32 = 0xff00_0001;
 
 /// Use to indicate this is an EPOLLFD (an internal kind of fd)
-pub const FDKINDEPOLL: u32 = 0xff00_0001;
+pub const FDT_KINDEPOLL: u32 = 0xff00_0002;
 
 // These are the values we look up with at the end...
 #[doc = include_str!("../docs/fdtableentry.md")]
