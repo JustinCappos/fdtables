@@ -11,7 +11,7 @@ OS kernel, etc. beneath it.
 # Errors
   EBADF if the epollfd is not a valid fd
 
-  EINVALif the epollfd is not actually an epollfd
+  EINVAL if the epollfd is not actually an epollfd
 
 # Example
 ```

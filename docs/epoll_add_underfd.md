@@ -15,7 +15,7 @@ See also: [`epoll_create_empty`] and [`virtualize_epoll_ctl`].
 # Errors
   EBADF if the epollfd is not a valid fd
 
-  EINVALif the epollfd is not actually an epollfd
+  EINVAL if the epollfd is not actually an epollfd
 
 # Example
 ```

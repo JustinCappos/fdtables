@@ -2,7 +2,8 @@ Convert virtual fds likely to handle the poll or ppoll command.
 
 This is a helper function for poll / ppoll which is called before the actual
 call is made.  It is given a cageid and a hashmap of virtualfds.  It returns
-a fdkind indexed hashtable with a HashSet of (virtualfd, FDTableEntry) tuples.
+a fdkind indexed hashtable with a `HashSet` of (virtualfd, `FDTableEntry`) 
+tuples.
 
 There is also a mapping table (hashmap) returned, which is used to reverse 
 this call.  For 

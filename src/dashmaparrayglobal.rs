@@ -647,6 +647,7 @@ pub fn get_one_virtual_bitmask_from_select_result(fdkind:u32, nfds:u64, bits:Opt
 // helper to call before calling poll beneath you.  replaces the fds in 
 // the poll struct with virtual versions and returns the items you need
 // to check yourself...
+#[allow(clippy::implicit_hasher)]
 #[allow(clippy::type_complexity)]
 #[doc = include_str!("../docs/convert_virtualfds_for_poll.md")]
 #[must_use] // must use the return value if you call it.
@@ -675,7 +676,7 @@ pub fn convert_virtualfds_for_poll(cageid:u64, virtualfds:HashSet<u64>) -> (Hash
                 fdkind:FDT_INVALID_FD,
                 underfd:virtfd,
                 should_cloexec:false,
-                perfdinfo:FDT_INVALID_FD as u64,
+                perfdinfo:u64::from(FDT_INVALID_FD),
             };
 
             // Insert an empty HashSet, if needed
@@ -812,14 +813,16 @@ fn _get_epoll_entrynum_or_error(cageid:u64, epfd:u64) -> Result<u64,threei::RetV
     // Is the epfd ok? 
     match FDTABLE.get(&cageid).unwrap()[epfd as usize] {
         None => {
-            return Err(threei::Errno::EBADF as u64);
+            Err(threei::Errno::EBADF as u64)
         },
         Some(tableentry) => { 
             // You must call this on an epoll fd
-            if tableentry.fdkind != FDT_KINDEPOLL {
-                return Err(threei::Errno::EINVAL as u64);
+            if tableentry.fdkind == FDT_KINDEPOLL {
+                Ok(tableentry.underfd)
             }
-            Ok(tableentry.underfd)
+            else {
+                Err(threei::Errno::EINVAL as u64)
+            }
         },
     }
 }

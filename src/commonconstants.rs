@@ -10,7 +10,6 @@ pub const FD_PER_PROCESS_MAX: u64 = 1024;
 // /// Use to indicate this is an EPOLLFD
 // pub const EPOLLFD: u64 = 0xff_abcd_ef02;
 
-
 /// All FDKIND values defined by the user must be below this value.
 pub const FDT_KINDMAX: u32 = 0xff00_0000;
 
@@ -31,15 +30,15 @@ pub struct FDTableEntry {
     /// which is global to all virtual fds that track this.
     /// values over FDKINDMAX are reserved.
     pub fdkind: u32,
-    /// underlying fd (could be the real, kernel fd below us or could be 
-    /// some indicator of what table entry a virtual fd has.  It is up to 
+    /// underlying fd (could be the real, kernel fd below us or could be
+    /// some indicator of what table entry a virtual fd has.  It is up to
     /// the implementer to decide how to use this.
     pub underfd: u64,
     /// Should I close this on exec?  Needed so fdtabls can implement
     /// [/`empty_fds_for_exec`]
     pub should_cloexec: bool,
     /// Used to store fd specific extra information, such as flags or similar
-    /// which may differ for different 'dup'ed copies of a fd.   Whatever 
+    /// which may differ for different 'dup'ed copies of a fd.   Whatever
     /// the user desires may be placed here.
     pub perfdinfo: u64,
 }
@@ -47,7 +46,7 @@ pub struct FDTableEntry {
 #[allow(non_snake_case)]
 /// A function used when registering close handlers which does nothing...
 /// It is the default if no close handlers are defined
-pub const fn NULL_FUNC(_:FDTableEntry, _:u64) {}
+pub const fn NULL_FUNC(_: FDTableEntry, _: u64) {}
 
 // BUG / TODO: Use this in some sane way...
 #[allow(dead_code)]
