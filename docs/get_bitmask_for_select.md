@@ -1,11 +1,11 @@
 Translate select's bitmasks for the different fdkinds.
 
 This is a helper function for select, which prepares a single bitmask for use
-with select.  Most likely, you want to call XXX instead.  A None Option is 
-just returned as None and is not processed.  Also, only fdkind values which
-are listed in fdkinds have their bitmask created.  Others are returned in the
-second item of the return tuple.  The mapping table return value is needed to
-revert the realfds back to virtualfds.
+with select.  Most likely, you want to call [`prepare_bitmasks_for_select`] 
+instead.  A None Option is just returned as None and is not processed.  Also, 
+only fdkind values which are listed in fdkinds have their bitmask created.  
+Others are returned in the second item of the return tuple.  The mapping 
+table return value is needed to revert the realfds back to virtualfds.
 
 
 NOTE: If identical entries are behind multiple virtualfds, only one of those

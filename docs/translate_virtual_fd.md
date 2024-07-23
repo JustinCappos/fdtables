@@ -1,4 +1,4 @@
-This is the main virtual -> realfd lookup function for fdtables.  
+This is the main lookup function which takes a virtual fd and returns the entry
 
 Converts a virtualfd, which is used in a cage, into the fdtableentry, which 
 is used by whatever is below us.
