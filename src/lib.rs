@@ -14,10 +14,11 @@
 //!
 //! Note that the code re-exports an implementation from a specific submodule.
 //! This was done to make the algorithmic options easier to benchmark and
-//! compare.  You, the caller, should only use the base `fdtables::XXX` API and
-//! not `fdtables::algorithmname::XXX`, as the latter will not be stable over
-//! time.
+//! compare.  You, the caller, should only use the base `fdtables` API and
+//! not `fdtables::algorithmname` directly, as the latter will not be stable
+//! over time.
 
+// ********************** CLIPPY DISCUSSION **************************** //
 // Copied from Tom Buckley-Houston
 // =========================================================================
 //                  Canonical lints for whole crate
@@ -73,6 +74,8 @@
 // it differently
 #![allow(clippy::result_unit_err)]
 
+// ********************* END CLIPPY DISCUSSION ************************* //
+
 // NOTE: This setup is a bit odd, I know.  I'm creating different
 // implementations of the same algorithm and I'd like to test them.  Originally
 // I was going to have a struct interface where I switched between them by
@@ -91,153 +94,12 @@
 // implementation you benchmark / test / use, you need to change the lines
 // below...
 //
+// I've looked at traits and patterns.  It's possible there is a better way to
+// do this which I'm currently unable to devise given my unfamliarity with
+// Rust...
 
-/*  ------------ SET OF IMPLEMENTATIONS OF FDTABLES ------------ */
+// Please see the doc strings for more information about the implementations.
 
-// --- Solution without locking ---
-//  HashMap<u64,HashMap<u64,FDTableEntry>>
-//      Done: Unlocked
-//
-//
-//  Broken!!!!  Don't know how to have a static global without a mutex.
-//mod nolockbasic;
-//pub use crate::nolockbasic::*;
-
-// --- Solutions with global locking ---
-//  Mutex<HashMap<u64,HashMap<u64,FDTableEntry>>>
-//      This is the default thing I implemented.
-//      Done: GlobalVanilla
-
-//mod vanillaglobal;
-//pub use crate::vanillaglobal::*;
-
-//  DashMap<u64,HashMap<u64,FDTableEntry>>
-//      Just a basic solution with a dashmap instead of a mutex + hashmap
-//      Done: GlobalDashMap
-//
-
-//mod dashmapglobal;
-//pub use crate::dashmapglobal::*;
-
-//
-//  DashMap<u64,[Option<FDTableEntry>;1024]>  Space is ~24KB per cage?!?
-//      Static DashMap.  Let's see if having the FDTableEntries be a static
-//      array is any faster...
-//
-
-//mod dashmaparrayglobal;
-//pub use crate::dashmaparrayglobal::*;
-
-//
-//  DashMap<u64,vec!(FDTableEntry;1024)>  Space is ~30KB per cage?!?
-//      Vector DashMap.  Let's see if having the FDTableEntries be a Vector
-//      is any different than a static array...
-//
-
-//mod dashmapvecglobal;
-//pub use crate::dashmapvecglobal::*;
-
-//  Mutex<Box<[[FDTableEntry;1024];256]>>  Space here is ~6MB total!?
-//
-//  struct PerCageFDTable {
-//      largest_fd_ever_used: u64,
-//      this_cage_fdtable: HashMap<u64,FDTableEntry>,
-//  }
-//  Mutex<HashMap<u64,PerCageFDTable>>
-//
-//  DashMap<u64,PerCageFDTable>
-
-// --- Solutions with per-fd locking ---
-//  Vec<Arc<parking_lot::RwLock<Option<FDTableEntry>>>> Space is ~40KB per cage
-//      Quite similar to the initial RustPOSIX implementation.  The vector is
-//      populated with 1024 entries at all times.  The locks exist at all
-//      times, even when the fds are not allocated.  This lets different
-//      threads access the same fd without a race, etc.
-//
-
-//
-// The purpose is to allow a cage to have a set of virtual fds which is
-// translated into real fds.
-//
-// For example, suppose a cage with cageid A, wants to open a file.  That open
-// operation needs to return a file descriptor to the cage.  Rather than have
-// each cage have the actual underlying numeric fd[*], each cage has its own
-// virtual fd numbers.  So cageid A's fd 6 will potentially be different from
-// cageid B's fd 6.  When a call from cageid A or B is made, this will need to
-// be translated from that virtual fd into the read fd[**].
-//
-// One other complexity deals with the CLOEXEC flag.  If this is set on a file
-// descriptor, then when exec is called, it must be closed.  This library
-// provides a few functions to simplify this process.
-//
-// To make this work, this library provides the following funtionality (these
-// must all be implemented by any party wishing to add functionality):
-//
-//      pub const ALGONAME: &str = XXX;
-//          Where XXX is a string for the name of the algorithm.  Printed
-//          during benchmarking...
-//
-//      refresh()
-//          Sets up / clears out the information.  Useful between tests.
-//
-//      translate_virtual_fd(cageid, virtualfd) -> Result<realfd,EBADFD>
-//
-//      get_unused_virtual_fd(cageid,realfd,is_cloexec,optionalinfo) -> Result<virtualfd, EMFILE>
-//
-//      set_cloexec(cageid,virtualfd,is_cloexec) -> Result<(), EBADFD>
-//
-//      get_specific_virtual_fd(cageid,virtualfd,realfd,is_cloexec,optionalinfo) -> Result<(), EBADF>
-//          This is mostly used for dup2/3.  I'm assuming the caller got the
-//          entry already and wants to put it in a location.  Closes the fd if
-//          the entry is occupied.  Raises EBADF if out of range...
-//
-//      copy_fdtable_for_cage(srccageid, newcageid) -> Result<(), ENFILE>
-//          This is effectively just making a copy of a specific cage's
-//          fdtable, for use in fork()
-//
-//      remove_cage_from_fdtable(cageid)
-//          This is mostly used in handling exit, etc.  Calls the appropriate
-//          close handlers.
-//
-//      empty_fds_for_exec(cageid)
-//          This handles exec by removing all of FDTableEntries with cloexec
-//          set.  It calls the appropriate close handler for each fd.
-//
-//      get_optionalinfo(cageid,virtualfd) -> Result<optionalinfo, EBADFD>
-//      set_optionalinfo(cageid,virtualfd,optionalinfo) -> Result<(), EBADFD>
-//          The above two are useful if you want to track other things like
-//          an id for other in-memory data structures
-//
-//      return_fdtable_copy(cageid: u64) -> HashMap<u64, FDTableEntry>
-//          returns a copy of the fdtable for a cage.  Useful helper function
-//          for a caller that needs to examine the table.  Likely could be
-//          more efficient by letting the caller borrow this...
-//
-//      close_virtualfd(cageid: u64) -> Result<(),EBADF>
-//          removes an entry from the virtual fd table.  It calls the
-//          appropriate close handlers.
-//
-//
-// In situations where this will be used by a grate, a few other calls are
-// particularly useful:
-//
-//      threeii::reserve_fd(cageid, Option<fd>) -> Result<fd, EMFILE / ENFILE>
-//          Used to have the grate, etc. beneath you reserve (or provide) a fd.
-//          This is useful for situatiosn where you want to have most fds
-//          handled elsewhere, but need to be able to acquire a few for your
-//          purposes (like implementing in-memory pipes, etc.)
-//
-//
-//
-// [*] This isn't possible because the parent and child can close, open, dup,
-// etc. their file descriptors independently.
-//
-// [**] This is only the 'real' fd from the standpoint of the user of this
-// library.  If another part of the system below it, such as another grate or
-// the microvisor, is using this library, it will get translated again.
-//
-
-//
 // This library is likely the place in the system where we should consider
 // putting in place limits on file descriptors.  Linux does this through two
 // error codes, one for a per-process limit and the other for an overall system
@@ -249,10 +111,13 @@
 //
 //       ENFILE The system-wide limit on the total number of open files
 //              has been reached. (mostly unimplemented)
-//
 
+// This includes the specific implementation of the algorithm chosen.
 include!("current_impl");
 
+// This includes general constants and definitions for things that are
+// needed everywhere, like FDTableEntry.  I use the * import here to flatten
+// the namespace so folks importing this have the symbols directly imported.
 mod commonconstants;
 pub use commonconstants::*;
 
@@ -274,6 +139,8 @@ mod tests {
 
     use std::thread;
 
+    use std::collections::HashSet;
+
     // I'm having a global testing mutex because otherwise the tests will
     // run concurrently.  This messes up some tests, especially testing
     // that tries to get all FDs, etc.
@@ -288,12 +155,12 @@ mod tests {
     // Import the symbols, etc. in this file...
     use super::*;
 
-    fn do_panic(_: u64) {
+    fn do_panic(_: FDTableEntry, _: u64) {
         panic!("do_panic!");
     }
 
     #[test]
-    // Basic test to ensure that I can get a virtual fd for a real fd and
+    // Basic test to ensure that I can get a virtual fd and the info back
     // find the value in the table afterwards...
     fn get_and_translate_work() {
         let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
@@ -303,15 +170,58 @@ mod tests {
         });
         refresh();
 
-        const REALFD: u64 = 10;
+        const FDKIND: u32 = 0;
+        const UNDERFD: u64 = 10;
         // Acquire a virtual fd...
-        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 100).unwrap();
-        let _ = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 100).unwrap();
-        let _ = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 100).unwrap();
-        let _ = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 100).unwrap();
+        let my_virt_fd =
+            get_unused_virtual_fd(threei::TESTING_CAGEID, FDKIND, UNDERFD, false, 100).unwrap();
+        let _ = get_unused_virtual_fd(threei::TESTING_CAGEID, FDKIND, UNDERFD, false, 100).unwrap();
+        let _ = get_unused_virtual_fd(threei::TESTING_CAGEID, FDKIND, UNDERFD, false, 100).unwrap();
+        let _ = get_unused_virtual_fd(threei::TESTING_CAGEID, FDKIND, UNDERFD, false, 100).unwrap();
         assert_eq!(
-            REALFD,
+            UNDERFD,
+            translate_virtual_fd(threei::TESTING_CAGEID, my_virt_fd)
+                .unwrap()
+                .underfd
+        );
+        assert_eq!(
+            FDKIND,
+            translate_virtual_fd(threei::TESTING_CAGEID, my_virt_fd)
+                .unwrap()
+                .fdkind
+        );
+    }
+
+    #[test]
+    // Do more complex things work with get and translate?
+    fn more_complex_get_and_translate() {
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
+        refresh();
+
+        // Acquire a virtual fd...
+        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 1, 2, false, 3).unwrap();
+        let my_virt_fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 7, 8, true, 9).unwrap();
+        assert_eq!(
+            FDTableEntry {
+                fdkind: 1,
+                underfd: 2,
+                should_cloexec: false,
+                perfdinfo: 3
+            },
             translate_virtual_fd(threei::TESTING_CAGEID, my_virt_fd).unwrap()
+        );
+        assert_eq!(
+            FDTableEntry {
+                fdkind: 7,
+                underfd: 8,
+                should_cloexec: true,
+                perfdinfo: 9
+            },
+            translate_virtual_fd(threei::TESTING_CAGEID, my_virt_fd2).unwrap()
         );
     }
 
@@ -325,15 +235,24 @@ mod tests {
         });
         refresh();
 
-        const REALFD: u64 = 10;
         // Acquire a virtual fd...
-        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 100).unwrap();
+        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 1, 2, false, 3).unwrap();
         set_cloexec(threei::TESTING_CAGEID, my_virt_fd, true).unwrap();
+
+        assert_eq!(
+            FDTableEntry {
+                fdkind: 1,
+                underfd: 2,
+                should_cloexec: true, // Should be set now...
+                perfdinfo: 3
+            },
+            translate_virtual_fd(threei::TESTING_CAGEID, my_virt_fd).unwrap()
+        );
     }
 
     #[test]
-    // Get and set optionalinfo
-    fn try_get_and_set_optionalinfo() {
+    // Set perfdinfo
+    fn try_set_perfdinfo() {
         let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
             refresh();
             TESTMUTEX.clear_poison();
@@ -341,25 +260,22 @@ mod tests {
         });
         refresh();
 
-        // Acquire two virtual fds...
-        let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
-        let my_virt_fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 4, true, 250).unwrap();
-        assert_eq!(
-            150,
-            get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd1).unwrap()
-        );
-        assert_eq!(
-            250,
-            get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd2).unwrap()
-        );
-        set_optionalinfo(threei::TESTING_CAGEID, my_virt_fd1, 500).unwrap();
+        // Acquire two virtual fds with the same fdkind and underfd...
+        let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 3, 4, false, 150).unwrap();
+        let my_virt_fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 3, 4, true, 250).unwrap();
+        set_perfdinfo(threei::TESTING_CAGEID, my_virt_fd1, 500).unwrap();
         assert_eq!(
             500,
-            get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd1).unwrap()
+            translate_virtual_fd(threei::TESTING_CAGEID, my_virt_fd1)
+                .unwrap()
+                .perfdinfo
         );
+        // Changing one should not have changed the other...
         assert_eq!(
             250,
-            get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd2).unwrap()
+            translate_virtual_fd(threei::TESTING_CAGEID, my_virt_fd2)
+                .unwrap()
+                .perfdinfo
         );
     }
 
@@ -373,7 +289,10 @@ mod tests {
         refresh();
 
         // Acquire two virtual fds...
-        let _my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
+        let _my_virt_fd1 =
+            get_unused_virtual_fd(threei::TESTING_CAGEID, 0, 10, false, 150).unwrap();
+        let _my_virt_fd2 =
+            get_unused_virtual_fd(threei::TESTING_CAGEID, 4, 13, false, 150).unwrap();
 
         // let's drop this fdtable...
         remove_cage_from_fdtable(threei::TESTING_CAGEID);
@@ -390,17 +309,19 @@ mod tests {
         refresh();
 
         // Acquire two virtual fds...
-        let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
-        let my_virt_fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 4, true, 250).unwrap();
+        let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, 10, false, 150).unwrap();
+        let my_virt_fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 1, 4, true, 250).unwrap();
 
         empty_fds_for_exec(threei::TESTING_CAGEID);
 
         assert_eq!(
             150,
-            get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd1).unwrap()
+            translate_virtual_fd(threei::TESTING_CAGEID, my_virt_fd1)
+                .unwrap()
+                .perfdinfo
         );
         // Should be missing...
-        assert!(get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd2).is_err());
+        assert!(translate_virtual_fd(threei::TESTING_CAGEID, my_virt_fd2).is_err());
     }
 
     #[test]
@@ -412,8 +333,8 @@ mod tests {
         });
         refresh();
         // Acquire two virtual fds...
-        let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
-        let my_virt_fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 4, true, 250).unwrap();
+        let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, 10, false, 150).unwrap();
+        let my_virt_fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 1, 4, true, 250).unwrap();
 
         // Copy the fdtable over to a new cage...
         let mut myhm = return_fdtable_copy(threei::TESTING_CAGEID);
@@ -422,26 +343,29 @@ mod tests {
         assert_eq!(
             *(myhm.get(&my_virt_fd1).unwrap()),
             FDTableEntry {
-                realfd: 10,
+                fdkind: 0,
+                underfd: 10,
                 should_cloexec: false,
-                optionalinfo: 150
+                perfdinfo: 150
             }
         );
         assert_eq!(
             *(myhm.get(&my_virt_fd2).unwrap()),
             FDTableEntry {
-                realfd: 4,
+                fdkind: 1,
+                underfd: 4,
                 should_cloexec: true,
-                optionalinfo: 250
+                perfdinfo: 250
             }
         );
 
         myhm.insert(
             my_virt_fd1,
             FDTableEntry {
-                realfd: 2,
+                fdkind: 2,
+                underfd: 100,
                 should_cloexec: false,
-                optionalinfo: 15,
+                perfdinfo: 15,
             },
         )
         .unwrap();
@@ -450,20 +374,25 @@ mod tests {
         assert_eq!(
             *(myhm.get(&my_virt_fd1).unwrap()),
             FDTableEntry {
-                realfd: 2,
+                fdkind: 2,
+                underfd: 100,
                 should_cloexec: false,
-                optionalinfo: 15
+                perfdinfo: 15,
             }
         );
 
         // Check to make sure the actual table is still intact...
         assert_eq!(
             150,
-            get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd1).unwrap()
+            translate_virtual_fd(threei::TESTING_CAGEID, my_virt_fd1)
+                .unwrap()
+                .perfdinfo
         );
         assert_eq!(
             250,
-            get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd2).unwrap()
+            translate_virtual_fd(threei::TESTING_CAGEID, my_virt_fd2)
+                .unwrap()
+                .perfdinfo
         );
     }
 
@@ -477,16 +406,20 @@ mod tests {
         refresh();
 
         // Acquire two virtual fds...
-        let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
-        let my_virt_fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 4, true, 250).unwrap();
+        let my_virt_fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, 10, false, 150).unwrap();
+        let my_virt_fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 1, 4, true, 250).unwrap();
 
         assert_eq!(
             150,
-            get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd1).unwrap()
+            translate_virtual_fd(threei::TESTING_CAGEID, my_virt_fd1)
+                .unwrap()
+                .perfdinfo
         );
         assert_eq!(
             250,
-            get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd2).unwrap()
+            translate_virtual_fd(threei::TESTING_CAGEID, my_virt_fd2)
+                .unwrap()
+                .perfdinfo
         );
 
         // Copy the fdtable over to a new cage...
@@ -495,27 +428,35 @@ mod tests {
         // Check the elements exist...
         assert_eq!(
             150,
-            get_optionalinfo(threei::TESTING_CAGEID1, my_virt_fd1).unwrap()
+            translate_virtual_fd(threei::TESTING_CAGEID1, my_virt_fd1)
+                .unwrap()
+                .perfdinfo
         );
         assert_eq!(
             250,
-            get_optionalinfo(threei::TESTING_CAGEID1, my_virt_fd2).unwrap()
+            translate_virtual_fd(threei::TESTING_CAGEID1, my_virt_fd2)
+                .unwrap()
+                .perfdinfo
         );
         // ... and are independent...
-        set_optionalinfo(threei::TESTING_CAGEID, my_virt_fd1, 500).unwrap();
+        set_perfdinfo(threei::TESTING_CAGEID, my_virt_fd1, 500).unwrap();
         assert_eq!(
             150,
-            get_optionalinfo(threei::TESTING_CAGEID1, my_virt_fd1).unwrap()
+            translate_virtual_fd(threei::TESTING_CAGEID1, my_virt_fd1)
+                .unwrap()
+                .perfdinfo
         );
         assert_eq!(
             500,
-            get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd1).unwrap()
+            translate_virtual_fd(threei::TESTING_CAGEID, my_virt_fd1)
+                .unwrap()
+                .perfdinfo
         );
     }
 
     #[test]
     // Do close_virtualfd(...) testing...
-    fn test_close_virtualfd() {
+    fn test_close_virtualfd_with_fdkind_0() {
         let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
             refresh();
             TESTMUTEX.clear_poison();
@@ -523,23 +464,23 @@ mod tests {
         });
         refresh();
 
-        const REALFD: u64 = 57;
+        const FD1: u64 = 57;
 
-        const ANOTHERREALFD: u64 = 101;
+        const FD2: u64 = 101;
 
         const SPECIFICVIRTUALFD: u64 = 15;
 
         // None of my closes (until the end) will be the last...
-        register_close_handlers(NULL_FUNC, do_panic, NULL_FUNC);
+        register_close_handlers(0, NULL_FUNC, do_panic);
 
         // use the same realfd a few times in different ways...
-        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
-        get_specific_virtual_fd(threei::TESTING_CAGEID, SPECIFICVIRTUALFD, REALFD, false, 10)
+        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, FD1, false, 10).unwrap();
+        get_specific_virtual_fd(threei::TESTING_CAGEID, SPECIFICVIRTUALFD, 0, FD1, false, 10)
             .unwrap();
-        let cloexecfd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, true, 10).unwrap();
+        let cloexecfd = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, FD1, true, 10).unwrap();
         // and a different realfd
         let _my_virt_fd3 =
-            get_unused_virtual_fd(threei::TESTING_CAGEID, ANOTHERREALFD, false, 10).unwrap();
+            get_unused_virtual_fd(threei::TESTING_CAGEID, 0, FD2, false, 10).unwrap();
 
         // let's close one (should have two left...)
         close_virtualfd(threei::TESTING_CAGEID, my_virt_fd).unwrap();
@@ -561,7 +502,69 @@ mod tests {
         remove_cage_from_fdtable(threei::TESTING_CAGEID);
 
         // panic if this isn't the last one (from now on)
-        register_close_handlers(do_panic, NULL_FUNC, NULL_FUNC);
+        register_close_handlers(0, do_panic, NULL_FUNC);
+
+        // Now this is the last one!
+        close_virtualfd(threei::TESTING_CAGEID7, SPECIFICVIRTUALFD).unwrap();
+    }
+
+    #[test]
+    // Do close_virtualfd(...) testing on different fdkinds...
+    fn test_close_virtualfd_with_varied_fdkinds() {
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
+        refresh();
+
+        const FDKIND1: u32 = 57;
+        const FD1: u64 = 57;
+
+        const FDKIND2: u32 = 57;
+        const FD2: u64 = 101;
+
+        const SPECIFICVIRTUALFD: u64 = 15;
+
+        // Should not be called because I'm doing different fds...
+        register_close_handlers(0, do_panic, do_panic);
+
+        // use the same realfd a few times in different ways...
+        let my_virt_fd =
+            get_unused_virtual_fd(threei::TESTING_CAGEID, FDKIND1, FD1, false, 10).unwrap();
+        get_specific_virtual_fd(
+            threei::TESTING_CAGEID,
+            SPECIFICVIRTUALFD,
+            FDKIND1,
+            FD1,
+            false,
+            10,
+        )
+        .unwrap();
+        let cloexecfd =
+            get_unused_virtual_fd(threei::TESTING_CAGEID, FDKIND1, FD1, true, 10).unwrap();
+        // and a different realfd
+        let _my_virt_fd3 =
+            get_unused_virtual_fd(threei::TESTING_CAGEID, FDKIND2, FD2, false, 10).unwrap();
+
+        // let's close one (should have two left...)
+        close_virtualfd(threei::TESTING_CAGEID, my_virt_fd).unwrap();
+
+        // Let's fork (to double the count)!
+        copy_fdtable_for_cage(threei::TESTING_CAGEID, threei::TESTING_CAGEID7).unwrap();
+
+        // let's simulate exec, which should close one of these...
+        empty_fds_for_exec(threei::TESTING_CAGEID7);
+
+        // but the copy in the original cage table should remain, so this
+        // shouldn't error...
+        translate_virtual_fd(threei::TESTING_CAGEID, cloexecfd).unwrap();
+
+        // However, the other should be gone and should error...
+        assert!(translate_virtual_fd(threei::TESTING_CAGEID7, cloexecfd).is_err());
+
+        // Let's simulate exit on the initial cage, to close two of them...
+        remove_cage_from_fdtable(threei::TESTING_CAGEID);
 
         // Now this is the last one!
         close_virtualfd(threei::TESTING_CAGEID7, SPECIFICVIRTUALFD).unwrap();
@@ -578,27 +581,25 @@ mod tests {
         });
         refresh();
 
-        const REALFD: u64 = 57;
-
         // get the realfd...  I tested this in the test above, so should not
         // panic...
-        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
+        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, 10, false, 10).unwrap();
         close_virtualfd(threei::TESTING_CAGEID, my_virt_fd).unwrap();
 
         // Panic on this one...
-        register_close_handlers(NULL_FUNC, do_panic, NULL_FUNC);
+        register_close_handlers(0, do_panic, NULL_FUNC);
 
-        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
+        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, 10, false, 10).unwrap();
         close_virtualfd(threei::TESTING_CAGEID, my_virt_fd).unwrap();
     }
 
     // Helper for the close handler recursion tests...
-    fn _test_close_handler_recursion_helper(_: u64) {
+    fn _test_close_handler_recursion_helper(_: FDTableEntry, _: u64) {
         // reset helpers
-        register_close_handlers(NULL_FUNC, NULL_FUNC, NULL_FUNC);
+        register_close_handlers(0, NULL_FUNC, NULL_FUNC);
 
-        const REALFD: u64 = 57;
-        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
+        const FD: u64 = 57;
+        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, FD, false, 10).unwrap();
         close_virtualfd(threei::TESTING_CAGEID, my_virt_fd).unwrap();
     }
 
@@ -612,12 +613,12 @@ mod tests {
         });
         refresh();
 
-        const REALFD: u64 = 57;
+        const FD: u64 = 57;
 
         // Register my helper to be called when I call close...
-        register_close_handlers(NULL_FUNC, _test_close_handler_recursion_helper, NULL_FUNC);
+        register_close_handlers(0, NULL_FUNC, _test_close_handler_recursion_helper);
 
-        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
+        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, FD, false, 10).unwrap();
         // Call this which calls the close handler
         close_virtualfd(threei::TESTING_CAGEID, my_virt_fd).unwrap();
     }
@@ -633,14 +634,14 @@ mod tests {
         });
         refresh();
 
-        const REALFD: u64 = 57;
+        const FD: u64 = 57;
 
         // Register my helper to be called when I call close...
-        register_close_handlers(NULL_FUNC, _test_close_handler_recursion_helper, NULL_FUNC);
+        register_close_handlers(0, NULL_FUNC, _test_close_handler_recursion_helper);
 
-        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 10).unwrap();
+        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, FD, false, 10).unwrap();
         // Call this which calls the close handler
-        get_specific_virtual_fd(threei::TESTING_CAGEID, my_virt_fd, 123, true, 0).unwrap();
+        get_specific_virtual_fd(threei::TESTING_CAGEID, my_virt_fd, 0, 123, true, 0).unwrap();
     }
 
     #[test]
@@ -654,16 +655,15 @@ mod tests {
         });
         refresh();
 
-        const REALFD: u64 = 57;
+        const FD: u64 = 57;
         // Since I'm removing a cage here, yet doing operations afterwards,
         // I need to have an empty cage first.
         init_empty_cage(threei::TESTING_CAGEID5);
 
         // Register my helper to be called when I call close...
-        register_close_handlers(NULL_FUNC, _test_close_handler_recursion_helper, NULL_FUNC);
+        register_close_handlers(0, NULL_FUNC, _test_close_handler_recursion_helper);
 
-        let _my_virt_fd =
-            get_unused_virtual_fd(threei::TESTING_CAGEID5, REALFD, false, 10).unwrap();
+        let _my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID5, 0, FD, false, 10).unwrap();
         // Call this which calls the close handler
         remove_cage_from_fdtable(threei::TESTING_CAGEID5);
     }
@@ -678,58 +678,17 @@ mod tests {
         });
         refresh();
 
-        const REALFD: u64 = NO_REAL_FD;
+        // Use a different fdkind...
+        const FDKIND: u32 = 1000;
+        const FD: u64 = 12;
 
-        // Register my helper to be called when I call close...
-        register_close_handlers(NULL_FUNC, _test_close_handler_recursion_helper, NULL_FUNC);
+        // Register my helper to be called when I call close on only FDKIND
+        // 0.  This should not be called because FDKIND is different...
+        register_close_handlers(0, NULL_FUNC, _test_close_handler_recursion_helper);
 
-        let _my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, true, 10).unwrap();
-        empty_fds_for_exec(threei::TESTING_CAGEID);
-    }
-
-    #[test]
-    // empty_fds_for_exec closehandler recursion...  likely deadlock on fail.
-    fn test_unreal_handler_recursion() {
-        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
-            refresh();
-            TESTMUTEX.clear_poison();
-            e.into_inner()
-        });
-        refresh();
-
-        // Register my helper to be called when I call close...
-        register_close_handlers(NULL_FUNC, NULL_FUNC, _test_close_handler_recursion_helper);
-
-        // close
-        let my_virt_fd =
-            get_unused_virtual_fd(threei::TESTING_CAGEID, NO_REAL_FD, true, 10).unwrap();
-        // Call this which calls the close handler
-        close_virtualfd(threei::TESTING_CAGEID, my_virt_fd).unwrap();
-
-        // restore handlers
-        register_close_handlers(NULL_FUNC, NULL_FUNC, _test_close_handler_recursion_helper);
-
-        // exec
         let _my_virt_fd =
-            get_unused_virtual_fd(threei::TESTING_CAGEID, NO_REAL_FD, true, 10).unwrap();
+            get_unused_virtual_fd(threei::TESTING_CAGEID, FDKIND, FD, true, 10).unwrap();
         empty_fds_for_exec(threei::TESTING_CAGEID);
-
-        // restore handlers
-        register_close_handlers(NULL_FUNC, NULL_FUNC, _test_close_handler_recursion_helper);
-
-        // remove
-        init_empty_cage(threei::TESTING_CAGEID5);
-        let _my_virt_fd =
-            get_unused_virtual_fd(threei::TESTING_CAGEID5, NO_REAL_FD, false, 10).unwrap();
-        remove_cage_from_fdtable(threei::TESTING_CAGEID5);
-
-        // restore handlers
-        register_close_handlers(NULL_FUNC, NULL_FUNC, _test_close_handler_recursion_helper);
-
-        // dup2
-        let my_virt_fd =
-            get_unused_virtual_fd(threei::TESTING_CAGEID, NO_REAL_FD, false, 10).unwrap();
-        get_specific_virtual_fd(threei::TESTING_CAGEID, my_virt_fd, NO_REAL_FD, true, 0).unwrap();
     }
 
     #[test]
@@ -751,28 +710,22 @@ mod tests {
 
         let cage_id = threei::TESTING_CAGEID;
 
-        // get_specific_virtual_fd(cage_id, VIRTFD, REALFD, CLOEXEC, OPTINFO)
-        get_specific_virtual_fd(cage_id, 3, 7, false, 10).unwrap();
-        get_specific_virtual_fd(cage_id, 5, NO_REAL_FD, false, 123).unwrap();
-        get_specific_virtual_fd(cage_id, 9, 20, true, 0).unwrap();
+        get_specific_virtual_fd(cage_id, 3, 0, 7, false, 10).unwrap();
+        get_specific_virtual_fd(cage_id, 5, 100, 32, false, 123).unwrap();
+        get_specific_virtual_fd(cage_id, 9, 0, 20, true, 0).unwrap();
 
-        let (mut realfds, unrealfds, invalidfds, mappingtable) =
-            convert_virtualfds_to_real(cage_id, vec![1, 3, 5, 9]);
+        let (pollhashmap, mappingtable) =
+            convert_virtualfds_for_poll(cage_id, HashSet::from([1, 3, 5, 9]));
 
-        assert_eq!(realfds.len(), 4);
-        assert_eq!(unrealfds.len(), 1);
-        assert_eq!(invalidfds.len(), 1);
-        assert_eq!(realfds, vec!(INVALID_FD, 7, NO_REAL_FD, 20));
-        assert_eq!(invalidfds, vec!(1));
-        assert_eq!(unrealfds, vec!((5, 123)));
-
-        // Toss out the unreal and invalid ones...
-        realfds.retain(|&realfd| realfd != NO_REAL_FD && realfd != INVALID_FD);
+        assert_eq!(pollhashmap.len(), 3); // 3 different keys for fdkinds
+        assert_eq!(pollhashmap.get(&0).unwrap().len(), 2);
+        assert_eq!(pollhashmap.get(&100).unwrap().len(), 1);
+        assert_eq!(pollhashmap.get(&FDT_INVALID_FD).unwrap().len(), 1);
 
         // poll(...)  // let's pretend that realfd 7 had its event triggered...
-        let newrealfds = convert_realfds_back_to_virtual(vec![7], &mappingtable);
+        let newrealfds = convert_poll_result_back_to_virtual(0, 7, &mappingtable);
         // virtfd 3 should be returned
-        assert_eq!(newrealfds, vec!(3));
+        assert_eq!(newrealfds, Some(3));
     }
 
     #[test]
@@ -794,18 +747,21 @@ mod tests {
 
         let cage_id = threei::TESTING_CAGEID;
 
+        const EMULFDKIND: u32 = 2;
+        const FDKIND: u32 = 1;
         let virtfd1 = 5;
         let virtfd2 = 6;
         let virtfd3 = 10;
-        let realfd = 20;
-        let epollrealfd = 100;
+        let epollunderfd = 100;
         // get_specific_virtual_fd(cage_id, VIRTFD, REALFD, CLOEXEC, OPTINFO)
-        get_specific_virtual_fd(cage_id, virtfd1, NO_REAL_FD, false, 123).unwrap();
-        get_specific_virtual_fd(cage_id, virtfd2, NO_REAL_FD, false, 456).unwrap();
-        get_specific_virtual_fd(cage_id, virtfd3, realfd, true, 0).unwrap();
+        get_specific_virtual_fd(cage_id, virtfd1, EMULFDKIND, 10, false, 123).unwrap();
+        get_specific_virtual_fd(cage_id, virtfd2, EMULFDKIND, 11, false, 456).unwrap();
+        get_specific_virtual_fd(cage_id, virtfd3, FDKIND, 20, true, 0).unwrap();
 
         // get an epollfd...
-        let epollfd = epoll_create_helper(cage_id, epollrealfd, false).unwrap();
+        let epollfd = epoll_create_empty(cage_id, false).unwrap();
+        // ... set the underfd ...
+        epoll_add_underfd(cage_id, epollfd, FDKIND, epollunderfd).unwrap();
 
         let myevent1 = epoll_event {
             events: (EPOLLIN + EPOLLOUT) as u32,
@@ -816,66 +772,135 @@ mod tests {
             u64: 0,
         };
 
-        // try to add the realfd, which should fail and return the realfd
+        // try to add the epollfd, which should fail
         assert_eq!(
-            try_epoll_ctl(cage_id, epollfd, EPOLL_CTL_ADD, virtfd3, myevent1.clone()).unwrap(),
-            (epollrealfd, realfd)
+            virtualize_epoll_ctl(cage_id, epollfd, EPOLL_CTL_ADD, virtfd3, myevent1.clone())
+                .unwrap(),
+            ()
         );
-        // Nothing should have been added...
-        assert_eq!(get_epoll_wait_data(cage_id, epollfd).unwrap().1.len(), 0);
+
+        // Only one key,
+        assert_eq!(
+            get_virtual_epoll_wait_data(cage_id, epollfd).unwrap().len(),
+            1
+        );
+        // ...with a value
+        assert_eq!(
+            get_virtual_epoll_wait_data(cage_id, epollfd)
+                .unwrap()
+                .get(&FDKIND)
+                .unwrap()
+                .len(),
+            1
+        );
 
         // Add in one unrealfd...
         assert_eq!(
-            try_epoll_ctl(cage_id, epollfd, EPOLL_CTL_ADD, virtfd1, myevent1.clone()).unwrap(),
-            (epollrealfd, NO_REAL_FD)
+            virtualize_epoll_ctl(cage_id, epollfd, EPOLL_CTL_ADD, virtfd1, myevent1.clone())
+                .unwrap(),
+            ()
         );
 
-        // Should have one item...
-        assert_eq!(get_epoll_wait_data(cage_id, epollfd).unwrap().1.len(), 1);
-
-        // Delete it...
+        // Should have two keys now
         assert_eq!(
-            try_epoll_ctl(cage_id, epollfd, EPOLL_CTL_DEL, virtfd1, myevent1.clone()).unwrap(),
-            (epollrealfd, NO_REAL_FD)
+            get_virtual_epoll_wait_data(cage_id, epollfd).unwrap().len(),
+            2
         );
 
-        // Back to zero...
-        assert_eq!(get_epoll_wait_data(cage_id, epollfd).unwrap().1.len(), 0);
+        // Delete an item...
+        assert_eq!(
+            virtualize_epoll_ctl(cage_id, epollfd, EPOLL_CTL_DEL, virtfd1, myevent1.clone())
+                .unwrap(),
+            ()
+        );
 
-        // Add in two unrealfds...
+        // Only one key,
         assert_eq!(
-            try_epoll_ctl(cage_id, epollfd, EPOLL_CTL_ADD, virtfd1, myevent1.clone()).unwrap(),
-            (epollrealfd, NO_REAL_FD)
+            get_virtual_epoll_wait_data(cage_id, epollfd).unwrap().len(),
+            1
+        );
+
+        // Add in two EMULFDKINDS
+        assert_eq!(
+            virtualize_epoll_ctl(cage_id, epollfd, EPOLL_CTL_ADD, virtfd1, myevent1.clone())
+                .unwrap(),
+            ()
         );
         assert_eq!(
-            try_epoll_ctl(cage_id, epollfd, EPOLL_CTL_ADD, virtfd2, myevent2.clone()).unwrap(),
-            (epollrealfd, NO_REAL_FD)
+            virtualize_epoll_ctl(cage_id, epollfd, EPOLL_CTL_ADD, virtfd2, myevent2.clone())
+                .unwrap(),
+            ()
         );
-        assert_eq!(get_epoll_wait_data(cage_id, epollfd).unwrap().1.len(), 2);
+        // Should have two kinds...
+        assert_eq!(
+            get_virtual_epoll_wait_data(cage_id, epollfd).unwrap().len(),
+            2
+        );
+        // ...and two values of kind EMULFDKIND
+
+        assert_eq!(
+            get_virtual_epoll_wait_data(cage_id, epollfd).unwrap().len(),
+            2
+        );
+        assert_eq!(
+            get_virtual_epoll_wait_data(cage_id, epollfd)
+                .unwrap()
+                .get(&EMULFDKIND)
+                .unwrap()
+                .len(),
+            2
+        );
 
         // Check their event types are correct...
         assert_eq!(
-            get_epoll_wait_data(cage_id, epollfd).unwrap().1[&virtfd1].events,
+            get_virtual_epoll_wait_data(cage_id, epollfd)
+                .unwrap()
+                .get(&EMULFDKIND)
+                .unwrap()
+                .get(&virtfd1)
+                .unwrap()
+                .events,
             myevent1.events
         );
         assert_eq!(
-            get_epoll_wait_data(cage_id, epollfd).unwrap().1[&virtfd2].events,
+            get_virtual_epoll_wait_data(cage_id, epollfd)
+                .unwrap()
+                .get(&EMULFDKIND)
+                .unwrap()
+                .get(&virtfd2)
+                .unwrap()
+                .events,
             myevent2.events
         );
 
         // Let's switch one of them...
         assert_eq!(
-            try_epoll_ctl(cage_id, epollfd, EPOLL_CTL_MOD, virtfd1, myevent2.clone()).unwrap(),
-            (epollrealfd, NO_REAL_FD)
+            virtualize_epoll_ctl(cage_id, epollfd, EPOLL_CTL_MOD, virtfd1, myevent2.clone())
+                .unwrap(),
+            ()
         );
+
+        // Check their event types are correct...
         // not anymore!
         assert_ne!(
-            get_epoll_wait_data(cage_id, epollfd).unwrap().1[&virtfd1].events,
+            get_virtual_epoll_wait_data(cage_id, epollfd)
+                .unwrap()
+                .get(&EMULFDKIND)
+                .unwrap()
+                .get(&virtfd1)
+                .unwrap()
+                .events,
             myevent1.events
         );
-        // correct!
+        // still the same...
         assert_eq!(
-            get_epoll_wait_data(cage_id, epollfd).unwrap().1[&virtfd1].events,
+            get_virtual_epoll_wait_data(cage_id, epollfd)
+                .unwrap()
+                .get(&EMULFDKIND)
+                .unwrap()
+                .get(&virtfd2)
+                .unwrap()
+                .events,
             myevent2.events
         );
     }
@@ -904,8 +929,8 @@ mod tests {
         let cage_id = threei::TESTING_CAGEID;
 
         // get two epollfds...
-        let epollfd1 = epoll_create_helper(cage_id, EPOLLFD, false).unwrap();
-        let epollfd2 = epoll_create_helper(cage_id, EPOLLFD, false).unwrap();
+        let epollfd1 = epoll_create_empty(cage_id, false).unwrap();
+        let epollfd2 = epoll_create_empty(cage_id, false).unwrap();
 
         let myevent1 = epoll_event {
             events: (EPOLLIN + EPOLLOUT) as u32,
@@ -914,14 +939,15 @@ mod tests {
 
         // try to add an epollfd to an epollfd
         assert_eq!(
-            try_epoll_ctl(cage_id, epollfd1, EPOLL_CTL_ADD, epollfd2, myevent1.clone()).unwrap(),
-            (EPOLLFD, NO_REAL_FD)
+            virtualize_epoll_ctl(cage_id, epollfd1, EPOLL_CTL_ADD, epollfd2, myevent1.clone())
+                .unwrap(),
+            ()
         );
     }
 
     #[test]
     // check some common select cases...
-    fn check_get_real_bitmasks_for_select() {
+    fn check_basic_select() {
         let mut _thelock: MutexGuard<bool>;
         loop {
             match TESTMUTEX.lock() {
@@ -938,56 +964,96 @@ mod tests {
 
         let cage_id = threei::TESTING_CAGEID;
 
-        get_specific_virtual_fd(cage_id, 3, 7, false, 10).unwrap();
-        get_specific_virtual_fd(cage_id, 5, NO_REAL_FD, false, 123).unwrap();
+        get_specific_virtual_fd(cage_id, 3, 0, 7, false, 10).unwrap();
+        get_specific_virtual_fd(cage_id, 5, 1, 123, false, 123).unwrap();
 
         let mut bad_fds_to_check = _init_fd_set();
         _fd_set(2, &mut bad_fds_to_check);
 
         // check all of the positions!
-        assert!(
-            get_real_bitmasks_for_select(cage_id, 6, Some(bad_fds_to_check), None, None).is_err()
-        );
-        assert!(
-            get_real_bitmasks_for_select(cage_id, 6, None, Some(bad_fds_to_check), None).is_err()
-        );
-        assert!(
-            get_real_bitmasks_for_select(cage_id, 6, None, None, Some(bad_fds_to_check)).is_err()
-        );
+        assert!(prepare_bitmasks_for_select(
+            cage_id,
+            6,
+            Some(bad_fds_to_check),
+            None,
+            None,
+            &HashSet::from([0])
+        )
+        .is_err());
+        assert!(prepare_bitmasks_for_select(
+            cage_id,
+            6,
+            None,
+            Some(bad_fds_to_check),
+            None,
+            &HashSet::from([0])
+        )
+        .is_err());
+        assert!(prepare_bitmasks_for_select(
+            cage_id,
+            6,
+            None,
+            None,
+            Some(bad_fds_to_check),
+            &HashSet::from([0])
+        )
+        .is_err());
 
         // but if I drop the nfds too low, it is okay...
-        assert!(
-            get_real_bitmasks_for_select(cage_id, 2, None, None, Some(bad_fds_to_check)).is_ok()
-        );
+        assert!(prepare_bitmasks_for_select(
+            cage_id,
+            2,
+            None,
+            None,
+            Some(bad_fds_to_check),
+            &HashSet::from([0])
+        )
+        .is_ok());
 
         // too high also errors...
-        assert!(
-            get_real_bitmasks_for_select(cage_id, 1024, None, None, Some(bad_fds_to_check))
-                .is_err()
-        );
+        assert!(prepare_bitmasks_for_select(
+            cage_id,
+            1024,
+            None,
+            None,
+            Some(bad_fds_to_check),
+            &HashSet::from([0])
+        )
+        .is_err());
 
         // recall, we set up some actual virtualfds above...
         let mut actual_fds_to_check = _init_fd_set();
         _fd_set(3, &mut actual_fds_to_check);
         _fd_set(5, &mut actual_fds_to_check);
 
-        assert!(get_real_bitmasks_for_select(
+        assert!(prepare_bitmasks_for_select(
             cage_id,
             6,
             Some(actual_fds_to_check),
             Some(actual_fds_to_check),
-            None
+            None,
+            &HashSet::from([0])
         )
         .is_ok());
 
         // let's peek closer at an actual call...
-        let (_, realreadbits, realwritebits, realexceptbits, unrealitems, mappingtable) =
-            get_real_bitmasks_for_select(cage_id, 6, Some(actual_fds_to_check), None, None)
-                .unwrap();
-        assert!(realreadbits.is_some());
-        assert!(realwritebits.is_none());
-        assert!(realexceptbits.is_none());
-        assert_eq!(unrealitems[0].len(), 1);
+        let (selectbittables, unparsedtables, mappingtable) = prepare_bitmasks_for_select(
+            cage_id,
+            6,
+            Some(actual_fds_to_check),
+            None,
+            None,
+            &HashSet::from([0]),
+        )
+        .unwrap();
+        // The first bitmask should be filled out...
+        assert!(selectbittables[0].get(&0).is_some());
+        assert!(selectbittables[1].get(&0).is_none());
+        assert!(selectbittables[2].get(&0).is_none());
+        // Only the first one should be non-empty...
+        assert_eq!(unparsedtables[0].len(), 1);
+        assert_eq!(unparsedtables[1].len(), 0);
+        assert_eq!(unparsedtables[2].len(), 0);
         assert_eq!(mappingtable.len(), 1);
     }
 
@@ -1009,7 +1075,7 @@ mod tests {
         }
         refresh();
 
-        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, false, 150).unwrap();
+        let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, 10, false, 150).unwrap();
 
         // Choose an unused new_fd
         let my_new_fd: u64;
@@ -1018,13 +1084,17 @@ mod tests {
         } else {
             my_new_fd = 0;
         }
-        get_specific_virtual_fd(threei::TESTING_CAGEID, my_new_fd, 1, true, 5).unwrap();
+        get_specific_virtual_fd(threei::TESTING_CAGEID, my_new_fd, 0, 1, true, 5).unwrap();
         assert_eq!(
-            get_optionalinfo(threei::TESTING_CAGEID, my_new_fd).unwrap(),
+            translate_virtual_fd(threei::TESTING_CAGEID, my_new_fd)
+                .unwrap()
+                .perfdinfo,
             5
         );
         assert_eq!(
-            translate_virtual_fd(threei::TESTING_CAGEID, my_new_fd).unwrap(),
+            translate_virtual_fd(threei::TESTING_CAGEID, my_new_fd)
+                .unwrap()
+                .underfd,
             1
         );
 
@@ -1032,6 +1102,7 @@ mod tests {
         assert!(get_specific_virtual_fd(
             threei::TESTING_CAGEID,
             FD_PER_PROCESS_MAX + 1,
+            0,
             1,
             true,
             5
@@ -1053,8 +1124,7 @@ mod tests {
         let my_virt_fd = 135;
         assert!(translate_virtual_fd(threei::TESTING_CAGEID, my_virt_fd).is_err());
         assert!(set_cloexec(threei::TESTING_CAGEID, my_virt_fd, true).is_err());
-        assert!(get_optionalinfo(threei::TESTING_CAGEID, my_virt_fd).is_err());
-        assert!(set_optionalinfo(threei::TESTING_CAGEID, my_virt_fd, 37).is_err());
+        assert!(set_perfdinfo(threei::TESTING_CAGEID, my_virt_fd, 37).is_err());
     }
 
     #[test]
@@ -1067,9 +1137,9 @@ mod tests {
         });
 
         refresh();
-        let fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 10, true, 100).unwrap();
-        let fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 20, true, 200).unwrap();
-        let fd3 = get_unused_virtual_fd(threei::TESTING_CAGEID, 30, true, 300).unwrap();
+        let fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, 10, true, 100).unwrap();
+        let fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, 20, true, 200).unwrap();
+        let fd3 = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, 30, true, 300).unwrap();
         for threadcount in [1, 2, 4, 8, 16].iter() {
             let mut thread_handle_vec: Vec<thread::JoinHandle<()>> = Vec::new();
             for _numthreads in 0..*threadcount {
@@ -1115,8 +1185,8 @@ mod tests {
                 thread_handle_vec.push(thread::spawn(move || {
                     // Do 1000 writes, then flush it out...
                     for _ in 0..1000 / thisthreadcount {
-                        let fd =
-                            get_unused_virtual_fd(threei::TESTING_CAGEID, 10, true, 100).unwrap();
+                        let fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, 10, true, 100)
+                            .unwrap();
                         translate_virtual_fd(threei::TESTING_CAGEID, fd).unwrap();
                     }
                 }));
@@ -1138,7 +1208,7 @@ mod tests {
         });
         refresh();
 
-        const REALFD: u64 = 10;
+        const FD: u64 = 10;
         for _current in 0..FD_PER_PROCESS_MAX {
             // check to make sure that the number of items is equal to the
             // number of times through this loop...
@@ -1159,11 +1229,11 @@ mod tests {
                 current as usize
             ); */
 
-            let _ = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 100).unwrap();
+            let _ = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, FD, false, 100).unwrap();
         }
         // If the test is failing by not triggering here, we're not stopping
         // at the limit...
-        if get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 100).is_err() {
+        if get_unused_virtual_fd(threei::TESTING_CAGEID, 0, FD, false, 100).is_err() {
             refresh();
         } else {
             panic!("Should have raised an error...");
@@ -1191,9 +1261,9 @@ mod tests {
 
         copy_fdtable_for_cage(threei::TESTING_CAGEID, threei::TESTING_CAGEID10).unwrap();
 
-        let virtfd = get_unused_virtual_fd(threei::TESTING_CAGEID10, 10, false, 100).unwrap();
+        let virtfd = get_unused_virtual_fd(threei::TESTING_CAGEID10, 0, 10, false, 100).unwrap();
         // Do nothing.  See next test...
-        get_specific_virtual_fd(threei::TESTING_CAGEID10, virtfd, 10, false, 100).unwrap();
+        get_specific_virtual_fd(threei::TESTING_CAGEID10, virtfd, 0, 10, false, 100).unwrap();
     }
 
     #[test]
@@ -1241,10 +1311,10 @@ mod tests {
 
         copy_fdtable_for_cage(threei::TESTING_CAGEID, threei::TESTING_CAGEID11).unwrap();
         // panic in a moment!
-        register_close_handlers(do_panic, do_panic, NULL_FUNC);
-        let virtfd = get_unused_virtual_fd(threei::TESTING_CAGEID11, 234, false, 100).unwrap();
+        register_close_handlers(0, do_panic, do_panic);
+        let virtfd = get_unused_virtual_fd(threei::TESTING_CAGEID11, 0, 234, false, 100).unwrap();
         // panic!!!
-        get_specific_virtual_fd(threei::TESTING_CAGEID11, virtfd, 10, false, 100).unwrap();
+        get_specific_virtual_fd(threei::TESTING_CAGEID11, virtfd, 0, 10, false, 100).unwrap();
     }
 
     #[test]
@@ -1270,7 +1340,7 @@ mod tests {
             e.into_inner()
         });
 
-        let _ = get_unused_virtual_fd(threei::INVALID_CAGEID, 10, false, 100);
+        let _ = get_unused_virtual_fd(threei::INVALID_CAGEID, 0, 10, false, 100);
     }
 
     #[test]
@@ -1309,13 +1379,13 @@ mod tests {
 
         refresh();
 
-        const REALFD: u64 = 132;
+        const FD: u64 = 132;
         // I'm using unwrap_or because I don't want a panic here to be
         // considered passing the test
-        let fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 100).unwrap_or(1);
-        let _fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 100).unwrap_or(1);
+        let fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, FD, false, 100).unwrap_or(1);
+        let _fd2 = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, FD, false, 100).unwrap_or(1);
 
-        register_close_handlers(do_panic, NULL_FUNC, NULL_FUNC);
+        register_close_handlers(0, do_panic, NULL_FUNC);
 
         // should panic here...
         close_virtualfd(threei::TESTING_CAGEID, fd1).unwrap();
@@ -1342,43 +1412,12 @@ mod tests {
         }
         refresh();
 
-        const REALFD: u64 = 109;
+        const FD: u64 = 109;
         // I'm using unwrap_or because I don't want a panic here to be
         // considered passing the test
-        let fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, REALFD, false, 100).unwrap_or(1);
+        let fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, FD, false, 100).unwrap_or(1);
 
-        register_close_handlers(NULL_FUNC, do_panic, NULL_FUNC);
-
-        // should panic here...
-        close_virtualfd(threei::TESTING_CAGEID, fd1).unwrap();
-    }
-
-    #[test]
-    #[should_panic]
-    // Let's check that our callback for close is working correctly by having
-    // it panic
-    fn test_unreal_handler() {
-        let mut _thelock: MutexGuard<bool>;
-
-        loop {
-            match TESTMUTEX.lock() {
-                Err(_) => {
-                    TESTMUTEX.clear_poison();
-                }
-                Ok(val) => {
-                    _thelock = val;
-                    break;
-                }
-            }
-        }
-        refresh();
-
-        // I'm using unwrap_or because I don't want a panic here to be
-        // considered passing the test
-        let fd1 =
-            get_unused_virtual_fd(threei::TESTING_CAGEID, NO_REAL_FD, false, 100).unwrap_or(1);
-
-        register_close_handlers(NULL_FUNC, NULL_FUNC, do_panic);
+        register_close_handlers(0, NULL_FUNC, do_panic);
 
         // should panic here...
         close_virtualfd(threei::TESTING_CAGEID, fd1).unwrap();
@@ -1404,12 +1443,11 @@ mod tests {
 
         // I'm using unwrap_or because I don't want a panic here to be
         // considered passing the test
-        let fd1 =
-            get_unused_virtual_fd(threei::TESTING_CAGEID, NO_REAL_FD, false, 100).unwrap_or(1);
+        let fd1 = get_unused_virtual_fd(threei::TESTING_CAGEID, 1, 123, false, 100).unwrap_or(1);
 
-        fn myfunc(_: u64) {}
+        fn myfunc(_: FDTableEntry, _: u64) {}
 
-        register_close_handlers(myfunc, myfunc, myfunc);
+        register_close_handlers(0, myfunc, myfunc);
 
         // should panic here...
         close_virtualfd(threei::TESTING_CAGEID, fd1).unwrap();

@@ -911,29 +911,43 @@ pub fn virtualize_epoll_ctl(cageid:u64, epfd:u64, op:i32, virtfd:u64, event:epol
     }
 
     let mut eptable = EPOLLTABLE.lock().unwrap();
-    let userhm = eptable.thisepolltable.get_mut(&epentrynum).unwrap().userhandledhashmap.entry(virtfdkind).or_default();
+//    let userhm = eptable.thisepolltable.get_mut(&epentrynum).unwrap().userhandledhashmap.entry(virtfdkind).or_default();
+    let userhm = &mut eptable.thisepolltable.get_mut(&epentrynum).unwrap().userhandledhashmap;
 
     match op {
         EPOLL_CTL_ADD => {
-            if userhm.contains_key(&virtfd) {
+            let thisuserhm = userhm.entry(virtfdkind).or_default();
+            if thisuserhm.contains_key(&virtfd) {
                 return Err(threei::Errno::EEXIST as u64);
             }
             // BUG: Need to check for ELOOP here once I support EPOLLFDs
             // referencing each other...
 
-            userhm.insert(virtfd, event);
+            thisuserhm.insert(virtfd, event);
         },
         EPOLL_CTL_MOD => {
-            if !userhm.contains_key(&virtfd) {
+            if !userhm.contains_key(&virtfdkind) {
                 return Err(threei::Errno::ENOENT as u64);
             }
-            userhm.insert(virtfd, event);
+            let thisuserhm: &mut HashMap<u64, epoll_event> = userhm.get_mut(&virtfdkind).unwrap();
+            if !thisuserhm.contains_key(&virtfd) {
+                return Err(threei::Errno::ENOENT as u64);
+            }
+            thisuserhm.insert(virtfd, event);
         },
         EPOLL_CTL_DEL => {
-            if !userhm.contains_key(&virtfd) {
+            if !userhm.contains_key(&virtfdkind) {
                 return Err(threei::Errno::ENOENT as u64);
             }
-            userhm.remove(&virtfd);
+            let thisuserhm: &mut HashMap<u64, epoll_event> = userhm.get_mut(&virtfdkind).unwrap();
+            if !thisuserhm.contains_key(&virtfd) {
+                return Err(threei::Errno::ENOENT as u64);
+            }
+            thisuserhm.remove(&virtfd);
+            // If this was the last entry, delete the key altogether...
+            if thisuserhm.is_empty() {
+                userhm.remove(&virtfdkind);
+            }
         },
         _ => {
             return Err(threei::Errno::EINVAL as u64);
