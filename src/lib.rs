@@ -9,7 +9,7 @@
 //! impact the other cage.
 //!
 //! As such, this is a general library meant to handle those issues.  It has
-//! the primary function of letting set up virtual (child cage) to 
+//! the primary function of letting set up virtual (child cage) to
 //! mappings.
 //!
 //! Note that the code re-exports an implementation from a specific submodule.
