@@ -9,8 +9,8 @@
 //! impact the other cage.
 //!
 //! As such, this is a general library meant to handle those issues.  It has
-//! the primary function of letting set up virtual (child cage) to real
-//! (the underlying system) fd mappings.
+//! the primary function of letting set up virtual (child cage) to 
+//! mappings.
 //!
 //! Note that the code re-exports an implementation from a specific submodule.
 //! This was done to make the algorithmic options easier to benchmark and
@@ -473,12 +473,12 @@ mod tests {
         // None of my closes (until the end) will be the last...
         register_close_handlers(0, NULL_FUNC, do_panic);
 
-        // use the same realfd a few times in different ways...
+        // use the same fd a few times in different ways...
         let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, FD1, false, 10).unwrap();
         get_specific_virtual_fd(threei::TESTING_CAGEID, SPECIFICVIRTUALFD, 0, FD1, false, 10)
             .unwrap();
         let cloexecfd = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, FD1, true, 10).unwrap();
-        // and a different realfd
+        // and a different fd
         let _my_virt_fd3 =
             get_unused_virtual_fd(threei::TESTING_CAGEID, 0, FD2, false, 10).unwrap();
 
@@ -529,7 +529,7 @@ mod tests {
         // Should not be called because I'm doing different fds...
         register_close_handlers(0, do_panic, do_panic);
 
-        // use the same realfd a few times in different ways...
+        // use the same fd a few times in different ways...
         let my_virt_fd =
             get_unused_virtual_fd(threei::TESTING_CAGEID, FDKIND1, FD1, false, 10).unwrap();
         get_specific_virtual_fd(
@@ -543,7 +543,7 @@ mod tests {
         .unwrap();
         let cloexecfd =
             get_unused_virtual_fd(threei::TESTING_CAGEID, FDKIND1, FD1, true, 10).unwrap();
-        // and a different realfd
+        // and a different fd
         let _my_virt_fd3 =
             get_unused_virtual_fd(threei::TESTING_CAGEID, FDKIND2, FD2, false, 10).unwrap();
 
@@ -572,7 +572,7 @@ mod tests {
 
     #[test]
     #[should_panic]
-    // Check for duplicate uses of the same realfd...
+    // Check for duplicate uses of the same fd...
     fn test_dup_close() {
         let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
             refresh();
@@ -581,7 +581,7 @@ mod tests {
         });
         refresh();
 
-        // get the realfd...  I tested this in the test above, so should not
+        // get the fd...  I tested this in the test above, so should not
         // panic...
         let my_virt_fd = get_unused_virtual_fd(threei::TESTING_CAGEID, 0, 10, false, 10).unwrap();
         close_virtualfd(threei::TESTING_CAGEID, my_virt_fd).unwrap();
@@ -722,10 +722,10 @@ mod tests {
         assert_eq!(pollhashmap.get(&100).unwrap().len(), 1);
         assert_eq!(pollhashmap.get(&FDT_INVALID_FD).unwrap().len(), 1);
 
-        // poll(...)  // let's pretend that realfd 7 had its event triggered...
-        let newrealfds = convert_poll_result_back_to_virtual(0, 7, &mappingtable);
+        // poll(...)  // let's pretend that fd 7 had its event triggered...
+        let newfds = convert_poll_result_back_to_virtual(0, 7, &mappingtable);
         // virtfd 3 should be returned
-        assert_eq!(newrealfds, Some(3));
+        assert_eq!(newfds, Some(3));
     }
 
     #[test]
@@ -794,7 +794,7 @@ mod tests {
             1
         );
 
-        // Add in one unrealfd...
+        // Add in one fd...
         assert_eq!(
             virtualize_epoll_ctl(cage_id, epollfd, EPOLL_CTL_ADD, virtfd1, myevent1.clone())
                 .unwrap(),
