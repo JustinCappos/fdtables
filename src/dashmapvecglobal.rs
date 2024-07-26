@@ -529,6 +529,9 @@ pub fn get_bitmask_for_select(cageid:u64, nfds:u64, bits:Option<fd_set>, fdkinds
                     // Is unparsed...  Clippy's suggestion to insert if missing
                     retunparsedtable.entry(entry.fdkind).or_default();
                     retunparsedtable.get_mut(&entry.fdkind).unwrap().insert(entry);
+                    // and update the mappingtable to have the bit from the
+                    // original fd...
+                    mappingtable.insert((entry.fdkind,entry.underfd),pos);
                 }
                 else {
 
@@ -594,7 +597,7 @@ pub fn prepare_bitmasks_for_select(cageid:u64, nfds:u64, rbits:Option<fd_set>, w
 // need for your return from a select call and the number of unique flags
 // set...
 
-// I given them the hashmap, so don't need flexibility in what they return...
+// I've given them the hashmap, so don't need flexibility in what they return...
 #[allow(clippy::implicit_hasher)]
 #[must_use] // must use the return value if you call it.
 #[doc = include_str!("../docs/get_one_virtual_bitmask_from_select_result.md")]

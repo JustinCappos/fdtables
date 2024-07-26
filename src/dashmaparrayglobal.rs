@@ -530,6 +530,9 @@ pub fn get_bitmask_for_select(cageid:u64, nfds:u64, bits:Option<fd_set>, fdkinds
                     // Is unparsed...  Clippy's suggestion to insert if missing
                     retunparsedtable.entry(entry.fdkind).or_default();
                     retunparsedtable.get_mut(&entry.fdkind).unwrap().insert(entry);
+                    // and update the mappingtable to have the bit from the
+                    // original fd...
+                    mappingtable.insert((entry.fdkind,entry.underfd),pos);
                 }
                 else {
 

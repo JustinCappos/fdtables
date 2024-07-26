@@ -1054,7 +1054,8 @@ mod tests {
         assert_eq!(unparsedtables[0].len(), 1);
         assert_eq!(unparsedtables[1].len(), 0);
         assert_eq!(unparsedtables[2].len(), 0);
-        assert_eq!(mappingtable.len(), 1);
+        // Both fdkinds end up in the mapping table...
+        assert_eq!(mappingtable.len(), 2);
     }
 
     #[test]

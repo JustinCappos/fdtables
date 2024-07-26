@@ -40,5 +40,6 @@ assert!(_fd_isset(11,& selectbithm.get(&0).unwrap().1));
 assert_eq!(selectbithm.get(&0).unwrap().0, 25);
 
 assert_eq!(unparsedhm.len(), 1);
-assert_eq!(mappingtable.len(), 2);
+// One entry for each item
+assert_eq!(mappingtable.len(), 3);
 ```
