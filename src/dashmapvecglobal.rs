@@ -358,6 +358,8 @@ pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(),threei::RetVal> {
         // Zero out this entry before calling the close handler...
         myfdrow[virtfd as usize] = None;
 
+        FDTABLE.insert(cageid, myfdrow.clone());
+        
         // always _decrement last as it may call the user handler...
         _decrement_fdcount(entry.unwrap());
         return Ok(());
