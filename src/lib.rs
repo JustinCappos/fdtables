@@ -1453,4 +1453,30 @@ mod tests {
         // should panic here...
         close_virtualfd(threei::TESTING_CAGEID, fd1).unwrap();
     }
+
+    #[test]
+    // To check if item has been removed successfully after close
+    fn test_close_fdtable_update() {
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
+        refresh();
+
+        const FDKIND: u32 = 0;
+        const UNDERFD: u64 = 10;
+        // Acquire a virtual fd...
+        let my_virt_fd =
+            get_unused_virtual_fd(threei::TESTING_CAGEID, FDKIND, UNDERFD, false, 100).unwrap();
+        
+        close_virtualfd(threei::TESTING_CAGEID, my_virt_fd).unwrap();
+
+        // translate_virtual_fd should return error, because there should have 
+        // no requested my_virt_fd after close
+        match translate_virtual_fd(threei::TESTING_CAGEID, my_virt_fd) {
+            Ok(_) => panic!("translate_virtual_fd should return error!!"),
+            Err(_e) => {TESTMUTEX.clear_poison();}
+        }
+    }
 }
