@@ -968,6 +968,49 @@ mod tests {
         get_specific_virtual_fd(cage_id, 5, 1, 123, false, 123).unwrap();
 
         let mut bad_fds_to_check = _init_fd_set();
+
+        // check all "None" is okay...
+        assert!(prepare_bitmasks_for_select(
+            cage_id,
+            6,
+            None,
+            None,
+            None,
+            &HashSet::from([0])
+        )
+        .is_ok());
+
+        // check a few different "empty" bitmask cases too...
+        assert!(prepare_bitmasks_for_select(
+            cage_id,
+            6,
+            Some(bad_fds_to_check),
+            None,
+            None,
+            &HashSet::from([0])
+        )
+        .is_ok());
+        assert!(prepare_bitmasks_for_select(
+            cage_id,
+            6,
+            None,
+            None,
+            Some(bad_fds_to_check),
+            &HashSet::from([0])
+        )
+        .is_ok());
+        assert!(prepare_bitmasks_for_select(
+            cage_id,
+            6,
+            Some(bad_fds_to_check),
+            Some(bad_fds_to_check),
+            Some(bad_fds_to_check),
+            &HashSet::from([0])
+        )
+        .is_ok());
+
+
+        // Okay!   Now, set a fd...
         _fd_set(2, &mut bad_fds_to_check);
 
         // check all of the positions!
