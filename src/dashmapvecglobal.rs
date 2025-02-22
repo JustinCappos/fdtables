@@ -43,7 +43,7 @@ pub const ALGONAME: &str = "DashMapVecGlobal";
 lazy_static! {
 
     #[derive(Debug)]
-    static ref FDTABLE: DashMap<u64, Vec<Option<FDTableEntry>>> = {
+    pub static ref FDTABLE: DashMap<u64, Vec<Option<FDTableEntry>>> = {
         let m = DashMap::new();
         // Insert a cage so that I have something to fork / test later, if need
         // be. Otherwise, I'm not sure how I get this started. I think this
@@ -83,6 +83,11 @@ pub fn translate_virtual_fd(cageid: u64, virtualfd: u64) -> Result<FDTableEntry,
     // always have a table for each cage because each new cage is added at fork
     // time
     assert!(FDTABLE.contains_key(&cageid),"Unknown cageid in fdtable access");
+    // Below condition checks if the virtualfd is out of bounds and if yes it throws an error
+    // Note that this assumes that all virtualfd numbers returned < FD_PER_PROCESS_MAX 
+    if virtualfd >= FD_PER_PROCESS_MAX {
+        return Err(threei::Errno::EBADFD as u64);
+    }
 
     return match FDTABLE.get(&cageid).unwrap()[virtualfd as usize] {
         Some(tableentry) => Ok(tableentry),
@@ -358,9 +363,8 @@ pub fn close_virtualfd(cageid:u64, virtfd:u64) -> Result<(),threei::RetVal> {
         // Zero out this entry before calling the close handler...
         myfdrow[virtfd as usize] = None;
 
-        // Re-insert the modified myfdrow since I've been modifying a copy
         FDTABLE.insert(cageid, myfdrow.clone());
-        
+
         // always _decrement last as it may call the user handler...
         _decrement_fdcount(entry.unwrap());
         return Ok(());
