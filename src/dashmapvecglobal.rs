@@ -43,7 +43,7 @@ pub const ALGONAME: &str = "DashMapVecGlobal";
 lazy_static! {
 
     #[derive(Debug)]
-    pub static ref FDTABLE: DashMap<u64, Vec<Option<FDTableEntry>>> = {
+    static ref FDTABLE: DashMap<u64, Vec<Option<FDTableEntry>>> = {
         let m = DashMap::new();
         // Insert a cage so that I have something to fork / test later, if need
         // be. Otherwise, I'm not sure how I get this started. I think this
