@@ -83,6 +83,11 @@ pub fn translate_virtual_fd(cageid: u64, virtualfd: u64) -> Result<FDTableEntry,
     // always have a table for each cage because each new cage is added at fork
     // time
     assert!(FDTABLE.contains_key(&cageid),"Unknown cageid in fdtable access");
+    // Below condition checks if the virtualfd is out of bounds and if yes it throws an error
+    // Note that this assumes that all virtualfd numbers returned < FD_PER_PROCESS_MAX 
+    if virtualfd >= FD_PER_PROCESS_MAX {
+        return Err(threei::Errno::EBADFD as u64);
+    }
 
     return match FDTABLE.get(&cageid).unwrap()[virtualfd as usize] {
         Some(tableentry) => Ok(tableentry),

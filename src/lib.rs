@@ -1522,4 +1522,30 @@ mod tests {
             Err(_e) => {TESTMUTEX.clear_poison();}
         }
     }
+
+    #[test]
+    // This test case verifies that `translate_virtual_fd` correctly handles an edge case where a user 
+    // requests an large FD. An appropriate error (`EBADFD`) should be returned instead of allowing an 
+    // invalid operation or panic.
+    fn test_large_requested_fd() {
+        let mut _thelock = TESTMUTEX.lock().unwrap_or_else(|e| {
+            refresh();
+            TESTMUTEX.clear_poison();
+            e.into_inner()
+        });
+        refresh();
+
+        let my_virt_fd: u64 = 2025;
+
+        // translate_virtual_fd should return error, because there should have 
+        // no requested my_virt_fd after close
+        match translate_virtual_fd(threei::TESTING_CAGEID, my_virt_fd) {
+            Ok(_) => panic!("translate_virtual_fd should return error!!"),
+            Err(e) => {
+                if e != (threei::Errno::EBADFD as u64) {
+                    panic!("Unexpected behavior!");
+                }
+                TESTMUTEX.clear_poison();}
+        }
+    }
 }
